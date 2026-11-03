@@ -3,8 +3,10 @@
 //! Manages the application database at `$BOTRIX_DATA_DIR/botrix.db`.
 //! The Matrix SDK manages its own stores separately under `$BOTRIX_DATA_DIR/matrix/`.
 
+pub mod auth;
 pub mod maintenance;
 pub mod models;
+pub mod settings;
 
 use thiserror::Error;
 

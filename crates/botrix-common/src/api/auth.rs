@@ -26,3 +26,13 @@ pub struct SetupRequest {
     /// Initial admin password (plaintext; transmitted over TLS).
     pub password: String,
 }
+
+/// Response body for `GET /api/v1/auth/csrf`.
+///
+/// The client must send `token` back in the `X-CSRF-Token` header on every
+/// state-mutating request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CsrfResponse {
+    /// The CSRF authenticity token to echo back in `X-CSRF-Token`.
+    pub token: String,
+}

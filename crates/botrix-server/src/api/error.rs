@@ -1,0 +1,75 @@
+//! Shared HTTP error type for API handlers.
+
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde::Serialize;
+use thiserror::Error;
+
+/// An error returned by an API handler, mapped to an HTTP status code.
+#[derive(Debug, Error)]
+pub enum ApiError {
+    /// The request is missing authentication or has an invalid session.
+    #[error("unauthorized")]
+    Unauthorized,
+    /// The CSRF token is missing or invalid.
+    #[error("invalid CSRF token")]
+    CsrfRejected,
+    /// The request conflicts with current state (e.g. setup already done).
+    #[error("{0}")]
+    Conflict(String),
+    /// The request body failed validation.
+    #[error("{0}")]
+    BadRequest(String),
+    /// An unexpected internal error occurred.
+    #[error("internal server error")]
+    Internal,
+}
+
+/// JSON body returned for errors.
+#[derive(Serialize)]
+struct ErrorBody {
+    error: String,
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let status = match self {
+            ApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApiError::CsrfRejected => StatusCode::FORBIDDEN,
+            ApiError::Conflict(_) => StatusCode::CONFLICT,
+            ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        let body = ErrorBody {
+            error: self.to_string(),
+        };
+        (status, Json(body)).into_response()
+    }
+}
+
+impl From<crate::db::auth::AuthError> for ApiError {
+    fn from(err: crate::db::auth::AuthError) -> Self {
+        use crate::db::auth::AuthError;
+        match err {
+            AuthError::InvalidCredentials => ApiError::Unauthorized,
+            AuthError::AlreadyInitialized => {
+                ApiError::Conflict("an admin account already exists".to_owned())
+            }
+            // Hashing failures and database errors are internal.
+            AuthError::Hash(_) | AuthError::Database(_) => ApiError::Internal,
+        }
+    }
+}
+
+impl From<crate::db::DbError> for ApiError {
+    fn from(_: crate::db::DbError) -> Self {
+        ApiError::Internal
+    }
+}
+
+impl From<tower_sessions::session::Error> for ApiError {
+    fn from(_: tower_sessions::session::Error) -> Self {
+        ApiError::Internal
+    }
+}

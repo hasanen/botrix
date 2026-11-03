@@ -1,8 +1,19 @@
 //! Axum router assembly and server startup.
 
+use std::sync::Arc;
+
+use axum::routing::{get, post};
+use axum::Router;
+use axum_csrf::{CsrfConfig, Key, SameSite};
 use thiserror::Error;
+use tower_sessions::{Expiry, SessionManagerLayer};
+use tower_sessions_sqlx_store::SqliteStore;
 
 use crate::config::Config;
+use crate::state::AppState;
+
+/// Minimum length of `BOTRIX_SESSION_SECRET` in bytes (§16.4).
+const MIN_SESSION_SECRET_BYTES: usize = 32;
 
 /// Errors that can occur during server startup.
 #[derive(Debug, Error)]
@@ -18,6 +29,9 @@ pub enum ServerError {
     /// The database could not be initialized.
     #[error("database initialization failed: {0}")]
     Database(#[from] crate::db::DbError),
+    /// The session store could not be initialized.
+    #[error("session store initialization failed: {0}")]
+    SessionStore(#[source] sqlx::Error),
     /// The TCP listener could not be bound.
     #[error("failed to bind {addr}: {source}")]
     Bind {
@@ -36,8 +50,10 @@ pub enum ServerError {
 ///
 /// This function blocks until the server exits.
 pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
-    // Validate required environment variables before doing any other work.
-    let _session_secret = require_env("BOTRIX_SESSION_SECRET")?;
+    // Validate required environment variables before doing any other work,
+    // so misconfiguration fails fast before binding a port.
+    let session_secret = require_env("BOTRIX_SESSION_SECRET")?;
+    validate_session_secret(&session_secret)?;
     let _crypto_passphrase = require_env("BOTRIX_CRYPTO_PASSPHRASE")?;
 
     // Initialize the application database (runs migrations and crash recovery).
@@ -47,10 +63,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     // Start the periodic history cleanup task.
     crate::db::maintenance::spawn_cleanup_task(pool.clone());
 
+    // Production cookies are Secure; operators terminate TLS upstream.
+    let secure_cookies = true;
+    let router = build_app(pool, config.clone(), &session_secret, secure_cookies).await?;
+
     let addr = format!("{}:{}", config.server.host, config.server.port);
     tracing::info!(%addr, "starting Botrix server");
-
-    let router = build_router();
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -64,12 +82,68 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     Ok(())
 }
 
-fn build_router() -> axum::Router {
-    // Placeholder router — routes are wired in later phases.
-    axum::Router::new().route(
-        "/health",
-        axum::routing::get(|| async { axum::http::StatusCode::OK }),
-    )
+/// Build a fully-layered application router for the given database pool.
+///
+/// Used by both production startup and integration tests. `secure_cookies`
+/// should be `false` in tests (no TLS) and `true` in production.
+pub async fn build_app(
+    pool: crate::db::Pool,
+    config: Config,
+    session_secret: &str,
+    secure_cookies: bool,
+) -> Result<Router, ServerError> {
+    let session_store = SqliteStore::new(pool.clone());
+    session_store
+        .migrate()
+        .await
+        .map_err(ServerError::SessionStore)?;
+
+    let settings = crate::db::settings::get_settings(&pool).await?;
+
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_secure(secure_cookies)
+        .with_http_only(true)
+        .with_same_site(tower_sessions::cookie::SameSite::Strict)
+        .with_expiry(Expiry::OnInactivity(time::Duration::seconds(
+            settings.idle_timeout_secs,
+        )));
+
+    let csrf_key = Key::from(&derive_key_material(session_secret));
+    let csrf_config = CsrfConfig::default()
+        .with_cookie_name("botrix_csrf")
+        .with_http_only(true)
+        .with_secure(secure_cookies)
+        .with_cookie_same_site(SameSite::Strict)
+        .with_key(Some(csrf_key));
+
+    let state = AppState {
+        pool,
+        config: Arc::new(config),
+        csrf_config,
+    };
+
+    Ok(build_router(state).layer(session_layer))
+}
+
+/// Assemble the API router with the given application state.
+fn build_router(state: AppState) -> Router {
+    use crate::api::{auth, settings};
+
+    Router::new()
+        .route("/health", get(|| async { axum::http::StatusCode::OK }))
+        // Auth & session
+        .route("/api/v1/auth/csrf", get(auth::csrf))
+        .route("/api/v1/setup", post(auth::setup))
+        .route("/api/v1/auth/login", post(auth::login))
+        .route("/api/v1/auth/logout", post(auth::logout))
+        .route("/api/v1/auth/me", get(auth::me))
+        // Settings
+        .route(
+            "/api/v1/settings",
+            get(settings::get_settings).put(settings::update_settings),
+        )
+        .route("/api/v1/settings/password", post(settings::change_password))
+        .with_state(state)
 }
 
 fn require_env(name: &'static str) -> Result<String, ServerError> {
@@ -77,4 +151,50 @@ fn require_env(name: &'static str) -> Result<String, ServerError> {
         name,
         reason: "variable is not set".to_owned(),
     })
+}
+
+/// Derive 64 bytes of key material from the session secret via SHA-512.
+///
+/// Used to produce a cookie signing key of the length `Key::from` requires,
+/// deterministically from the operator-provided secret.
+fn derive_key_material(secret: &str) -> [u8; 64] {
+    use sha2::{Digest, Sha512};
+    let digest = Sha512::digest(secret.as_bytes());
+    let mut out = [0u8; 64];
+    out.copy_from_slice(&digest);
+    out
+}
+
+/// Validate that the session secret has at least [`MIN_SESSION_SECRET_BYTES`].
+fn validate_session_secret(secret: &str) -> Result<(), ServerError> {
+    // `str::len` is the UTF-8 byte length, which is what we want here.
+    if secret.len() < MIN_SESSION_SECRET_BYTES {
+        return Err(ServerError::MissingEnv {
+            name: "BOTRIX_SESSION_SECRET",
+            reason: format!(
+                "must be at least {MIN_SESSION_SECRET_BYTES} bytes, got {}",
+                secret.len()
+            ),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_short_session_secret() {
+        let result = validate_session_secret("too-short");
+        assert!(matches!(result, Err(ServerError::MissingEnv { .. })));
+    }
+
+    #[test]
+    fn accepts_long_enough_session_secret() {
+        // Exactly 32 bytes.
+        let secret = "0123456789abcdef0123456789abcdef";
+        assert_eq!(secret.len(), 32);
+        assert!(validate_session_secret(secret).is_ok());
+    }
 }

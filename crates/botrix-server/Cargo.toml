@@ -37,3 +37,8 @@ rust-embed = { workspace = true }
 axum_csrf = { workspace = true }
 anyhow = { workspace = true }
 unicode-normalization = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
