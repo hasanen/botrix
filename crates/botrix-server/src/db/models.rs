@@ -1,7 +1,7 @@
-//! SQLx row types that map directly to database tables.
+//! Row types that document the shape of each database table.
 
 /// A row from the `admins` table.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct Admin {
     /// Primary key.
     pub id: i64,
@@ -16,7 +16,7 @@ pub struct Admin {
 }
 
 /// A row from the `matrix_state` table (singleton, `id = 1`).
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct MatrixState {
     /// Primary key (always 1).
     pub id: i64,
@@ -41,7 +41,7 @@ pub struct MatrixState {
 }
 
 /// A row from the `webhook_tokens` table.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct WebhookToken {
     /// Primary key.
     pub id: i64,
@@ -58,7 +58,7 @@ pub struct WebhookToken {
 }
 
 /// A row from the `notifications` table.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct Notification {
     /// Primary key.
     pub id: i64,
@@ -83,7 +83,7 @@ pub struct Notification {
 }
 
 /// A row from the `log_events` table.
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct LogEvent {
     /// Primary key.
     pub id: i64,
@@ -100,7 +100,7 @@ pub struct LogEvent {
 }
 
 /// A row from the `session_settings` table (singleton, `id = 1`).
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug)]
 pub struct SessionSettings {
     /// Primary key (always 1).
     pub id: i64,

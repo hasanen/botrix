@@ -29,7 +29,7 @@ pub async fn get_settings(
     session: Session,
 ) -> Result<Json<Settings>, ApiError> {
     require_user(&session).await?;
-    let settings = db_settings::get_settings(&state.pool).await?;
+    let settings = db_settings::get_settings(&state.pool)?;
     Ok(Json(settings))
 }
 
@@ -57,7 +57,7 @@ pub async fn update_settings(
         idle_timeout_secs: req.idle_timeout_secs,
         absolute_lifetime_secs: req.absolute_lifetime_secs,
     };
-    db_settings::update_settings(&state.pool, &settings).await?;
+    db_settings::update_settings(&state.pool, &settings)?;
     Ok(Json(settings))
 }
 
@@ -83,8 +83,7 @@ pub async fn change_password(
         &username,
         &req.current_password,
         &req.new_password,
-    )
-    .await?;
+    )?;
 
     Ok(Json(serde_json::json!({ "status": "ok" })))
 }

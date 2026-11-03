@@ -15,6 +15,9 @@ use tower::ServiceExt;
 
 const SESSION_SECRET: &str = "0123456789abcdef0123456789abcdef";
 
+/// Monotonic counter for unique temp DB filenames across tests.
+static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// A tiny cookie jar: maps cookie name -> value, updated from `Set-Cookie`.
 #[derive(Default)]
 struct Jar {
@@ -47,17 +50,15 @@ impl Jar {
     }
 }
 
-/// Build an in-memory, migrated app router for tests.
-async fn test_app() -> (Router, sqlx::SqlitePool) {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory sqlite");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("run migrations");
+/// Build a migrated app router over a temp-file database for tests.
+async fn test_app() -> (Router, botrix_server::db::Pool) {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "botrix-authtest-{}-{}.db",
+        std::process::id(),
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    ));
+    let pool = botrix_server::db::init(path.to_str().unwrap()).expect("init db");
 
     // A minimal valid config.
     let config = botrix_server::config::Config {

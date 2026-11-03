@@ -88,7 +88,7 @@ async fn process(
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok()),
     );
-    let stored_hash = match db_webhooks::get_token_hash(&state.pool, identifier).await {
+    let stored_hash = match db_webhooks::get_token_hash(&state.pool, identifier) {
         Ok(Some(hash)) => hash,
         Ok(None) => return WebhookResponse::Unauthorized,
         Err(err) => {
@@ -120,7 +120,6 @@ async fn process(
 
     // 6. Persist the notification as `pending` for the background worker.
     match db_webhooks::insert_notification(&state.pool, identifier, &webhook.destination, &rendered)
-        .await
     {
         Ok(_) => WebhookResponse::Accepted,
         Err(err) => {

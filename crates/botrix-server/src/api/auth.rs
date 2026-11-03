@@ -47,7 +47,7 @@ pub async fn setup(
     verify_csrf(&token, &headers)?;
     validate_credentials(&req.username, &req.password)?;
 
-    db_auth::create_admin(&state.pool, &req.username, &req.password).await?;
+    db_auth::create_admin(&state.pool, &req.username, &req.password)?;
 
     Ok(Json(SessionInfo {
         username: req.username,
@@ -64,7 +64,7 @@ pub async fn login(
 ) -> Result<Json<SessionInfo>, ApiError> {
     verify_csrf(&token, &headers)?;
 
-    let username = db_auth::verify_login(&state.pool, &req.username, &req.password).await?;
+    let username = db_auth::verify_login(&state.pool, &req.username, &req.password)?;
     session::log_in(&session, &username).await?;
 
     Ok(Json(SessionInfo { username }))

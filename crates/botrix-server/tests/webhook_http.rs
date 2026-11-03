@@ -15,6 +15,9 @@ use tower::ServiceExt;
 
 const SESSION_SECRET: &str = "0123456789abcdef0123456789abcdef";
 
+/// Monotonic counter for unique temp DB filenames across tests.
+static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Default)]
 struct Jar {
     cookies: HashMap<String, String>,
@@ -44,16 +47,14 @@ impl Jar {
 }
 
 /// Build an app whose config has a single `wud` webhook -> `containers`.
-async fn test_app() -> (Router, sqlx::SqlitePool) {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .expect("connect in-memory sqlite");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("run migrations");
+async fn test_app() -> (Router, botrix_server::db::Pool) {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "botrix-webhooktest-{}-{}.db",
+        std::process::id(),
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    ));
+    let pool = botrix_server::db::init(path.to_str().unwrap()).expect("init db");
 
     let mut destinations = HashMap::new();
     destinations.insert(
@@ -251,12 +252,15 @@ async fn notify_valid_token_and_payload_is_accepted_and_persisted() {
 
     // Assert: 202 and a pending notification row with the rendered message.
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    let (status, dest, msg): (String, String, String) = sqlx::query_as(
-        "SELECT status, destination, rendered_message FROM notifications WHERE webhook_id = 'wud'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let (status, dest, msg): (String, String, String) = pool
+        .get()
+        .unwrap()
+        .query_row(
+            "SELECT status, destination, rendered_message FROM notifications WHERE webhook_id = 'wud'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
     assert_eq!(status, "pending");
     assert_eq!(dest, "containers");
     assert_eq!(msg, "Update: nginx");

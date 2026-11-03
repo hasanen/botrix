@@ -7,9 +7,9 @@ use axum::Router;
 use axum_csrf::{CsrfConfig, Key, SameSite};
 use thiserror::Error;
 use tower_sessions::{Expiry, SessionManagerLayer};
-use tower_sessions_sqlx_store::SqliteStore;
 
 use crate::config::Config;
+use crate::db::session_store::SqliteSessionStore;
 use crate::state::AppState;
 
 /// Minimum length of `BOTRIX_SESSION_SECRET` in bytes (§16.4).
@@ -29,9 +29,6 @@ pub enum ServerError {
     /// The database could not be initialized.
     #[error("database initialization failed: {0}")]
     Database(#[from] crate::db::DbError),
-    /// The session store could not be initialized.
-    #[error("session store initialization failed: {0}")]
-    SessionStore(#[source] sqlx::Error),
     /// The TCP listener could not be bound.
     #[error("failed to bind {addr}: {source}")]
     Bind {
@@ -58,7 +55,7 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
 
     // Initialize the application database (runs migrations and crash recovery).
     let db_path = format!("{data_dir}/botrix.db");
-    let pool = crate::db::init(&db_path).await?;
+    let pool = crate::db::init(&db_path)?;
 
     // Start the periodic history cleanup task.
     crate::db::maintenance::spawn_cleanup_task(pool.clone());
@@ -112,13 +109,10 @@ pub async fn build_app(
     session_secret: &str,
     secure_cookies: bool,
 ) -> Result<Router, ServerError> {
-    let session_store = SqliteStore::new(pool.clone());
-    session_store
-        .migrate()
-        .await
-        .map_err(ServerError::SessionStore)?;
+    // The sessions table is created by our migrations; no store migrate step.
+    let session_store = SqliteSessionStore::new(pool.clone());
 
-    let settings = crate::db::settings::get_settings(&pool).await?;
+    let settings = crate::db::settings::get_settings(&pool)?;
 
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(secure_cookies)

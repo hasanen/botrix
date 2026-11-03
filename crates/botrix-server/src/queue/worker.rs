@@ -40,7 +40,7 @@ pub fn spawn(pool: Pool, sender: Arc<dyn MessageSender>) -> tokio::task::JoinHan
 /// Returns an error only if claiming the batch failed; per-message delivery
 /// failures are handled individually and do not abort the batch.
 pub async fn poll_once(pool: &Pool, sender: &dyn MessageSender) -> Result<(), crate::db::DbError> {
-    let batch = db_webhooks::claim_pending(pool, BATCH_SIZE).await?;
+    let batch = db_webhooks::claim_pending(pool, BATCH_SIZE)?;
     for item in batch {
         process_one(pool, sender, item).await;
     }
@@ -70,7 +70,7 @@ async fn process_one(
     let attempts_including_this = item.attempts + 1;
     match decide(attempts_including_this, outcome) {
         Transition::Delivered => {
-            if let Err(err) = db_webhooks::mark_delivered(pool, item.id).await {
+            if let Err(err) = db_webhooks::mark_delivered(pool, item.id) {
                 tracing::error!(id = item.id, error = %err, "failed to mark delivered");
             }
         }
@@ -79,7 +79,7 @@ async fn process_one(
                 Outcome::PermanentFailure => "permanent delivery failure",
                 _ => "max retry attempts exhausted",
             };
-            if let Err(err) = db_webhooks::mark_failed(pool, item.id, reason).await {
+            if let Err(err) = db_webhooks::mark_failed(pool, item.id, reason) {
                 tracing::error!(id = item.id, error = %err, "failed to mark failed");
             }
         }
@@ -91,7 +91,7 @@ async fn process_one(
             tokio::spawn(async move {
                 tokio::time::sleep(delay).await;
                 if let Err(err) =
-                    db_webhooks::mark_for_retry(&pool, id, "transient failure; retrying").await
+                    db_webhooks::mark_for_retry(&pool, id, "transient failure; retrying")
                 {
                     tracing::error!(id, error = %err, "failed to mark for retry");
                 }
@@ -110,24 +110,16 @@ mod tests {
     use super::*;
     use crate::db::webhooks::insert_notification;
 
-    async fn test_pool() -> Pool {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("connect in-memory sqlite");
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .expect("run migrations");
-        pool
-    }
+    use crate::db::test_pool;
 
-    async fn status_of(pool: &Pool, id: i64) -> String {
-        sqlx::query_scalar("SELECT status FROM notifications WHERE id = ?")
-            .bind(id)
-            .fetch_one(pool)
-            .await
+    fn status_of(pool: &Pool, id: i64) -> String {
+        pool.get()
+            .unwrap()
+            .query_row(
+                "SELECT status FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
             .unwrap()
     }
 
@@ -172,45 +164,41 @@ mod tests {
     #[tokio::test]
     async fn successful_delivery_marks_delivered() {
         // Arrange
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "hi")
-            .await
-            .unwrap();
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "hi").unwrap();
         let sender = FakeSender::always_ok();
 
         // Act
         poll_once(&pool, &sender).await.unwrap();
 
         // Assert
-        assert_eq!(status_of(&pool, id).await, "delivered");
+        assert_eq!(status_of(&pool, id), "delivered");
         assert_eq!(sender.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
     async fn permanent_failure_marks_failed_without_retry() {
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "hi")
-            .await
-            .unwrap();
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "hi").unwrap();
         let sender = FakeSender::always(SendError::Permanent("no such room".into()));
 
         poll_once(&pool, &sender).await.unwrap();
 
-        assert_eq!(status_of(&pool, id).await, "failed");
+        assert_eq!(status_of(&pool, id), "failed");
     }
 
     #[tokio::test]
     async fn transient_failure_on_third_attempt_marks_failed() {
         // Arrange: a row that has already failed twice (attempts = 2). The
         // third attempt failing transiently should mark it failed.
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "hi")
-            .await
-            .unwrap();
-        sqlx::query("UPDATE notifications SET attempts = 2 WHERE id = ?")
-            .bind(id)
-            .execute(&pool)
-            .await
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "hi").unwrap();
+        pool.get()
+            .unwrap()
+            .execute(
+                "UPDATE notifications SET attempts = 2 WHERE id = ?1",
+                rusqlite::params![id],
+            )
             .unwrap();
         let sender = FakeSender::always(SendError::Transient("timeout".into()));
 
@@ -218,11 +206,15 @@ mod tests {
         poll_once(&pool, &sender).await.unwrap();
 
         // Assert: attempts become 3 and the row is failed (no more retries).
-        assert_eq!(status_of(&pool, id).await, "failed");
-        let attempts: i64 = sqlx::query_scalar("SELECT attempts FROM notifications WHERE id = ?")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
+        assert_eq!(status_of(&pool, id), "failed");
+        let attempts: i64 = pool
+            .get()
+            .unwrap()
+            .query_row(
+                "SELECT attempts FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(attempts, 3);
     }
@@ -231,19 +223,15 @@ mod tests {
     async fn claim_during_poll_prevents_double_processing() {
         // Two pending rows, a sender that always succeeds: a single poll should
         // deliver both exactly once.
-        let pool = test_pool().await;
-        let a = insert_notification(&pool, "wud", "containers", "a")
-            .await
-            .unwrap();
-        let b = insert_notification(&pool, "wud", "containers", "b")
-            .await
-            .unwrap();
+        let pool = test_pool();
+        let a = insert_notification(&pool, "wud", "containers", "a").unwrap();
+        let b = insert_notification(&pool, "wud", "containers", "b").unwrap();
         let sender = FakeSender::always_ok();
 
         poll_once(&pool, &sender).await.unwrap();
 
-        assert_eq!(status_of(&pool, a).await, "delivered");
-        assert_eq!(status_of(&pool, b).await, "delivered");
+        assert_eq!(status_of(&pool, a), "delivered");
+        assert_eq!(status_of(&pool, b), "delivered");
         assert_eq!(sender.calls.load(Ordering::SeqCst), 2);
     }
 }

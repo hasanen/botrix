@@ -23,10 +23,15 @@ thiserror = "2"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde_yaml = "0.9"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+# App DB uses rusqlite (same libsqlite3-sys 0.38 as matrix-sdk-sqlite, so a
+# single native sqlite3 library is linked — avoids the plan §19.5 conflict).
+rusqlite = { version = "0.37", features = ["bundled"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.31"
+# NOTE: pinned to the rusqlite/libsqlite3-sys line matrix-sdk-sqlite uses so a
+# single native sqlite3 is linked once matrix-sdk is added back in Phase 6.
 argon2 = "0.5"
 tower-sessions = "0.14"
-tower-sessions-sqlx-store = { version = "0.15", features = ["sqlite"] }
 rand = "0.8"
 sha2 = "0.10"
 constant_time_eq = "0.3"

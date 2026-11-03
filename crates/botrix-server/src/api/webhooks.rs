@@ -34,7 +34,7 @@ pub async fn list(
 
     let mut items = Vec::with_capacity(state.config.webhooks.len());
     for (id, cfg) in &state.config.webhooks {
-        let has_token = db_webhooks::has_token(&state.pool, id).await?;
+        let has_token = db_webhooks::has_token(&state.pool, id)?;
         items.push(WebhookInfo {
             id: id.clone(),
             enabled: cfg.enabled,
@@ -67,7 +67,7 @@ pub async fn generate_token(
 
     let plaintext = token_auth::generate_token();
     let hash = token_auth::hash_token(&plaintext);
-    db_webhooks::set_token_hash(&state.pool, &id, &hash).await?;
+    db_webhooks::set_token_hash(&state.pool, &id, &hash)?;
 
     Ok(Json(TokenGenerateResponse { token: plaintext }))
 }
@@ -83,6 +83,6 @@ pub async fn revoke_token(
     require_user(&session).await?;
     verify_csrf(&token, &headers)?;
 
-    let revoked = db_webhooks::revoke_token(&state.pool, &id).await?;
+    let revoked = db_webhooks::revoke_token(&state.pool, &id)?;
     Ok(Json(serde_json::json!({ "revoked": revoked })))
 }

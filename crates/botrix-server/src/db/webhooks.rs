@@ -1,82 +1,76 @@
 //! Persistence for webhook tokens and notifications.
-//!
-//! Token hashes live in `webhook_tokens` (one row per webhook identifier).
-//! Accepted webhook payloads are rendered and inserted into `notifications`
-//! with status `pending` for the background worker to deliver.
 
-use super::{DbError, Pool};
+use super::{now_unix, DbError, Pool};
 
 /// Retention window for notifications, in seconds (30 days, §5.3).
 pub const NOTIFICATION_RETENTION_SECS: i64 = 30 * 24 * 60 * 60;
 
-/// Current Unix timestamp in seconds.
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 /// Store (or replace) the token hash for a webhook identifier.
-///
-/// Upserts the `webhook_tokens` row, enabling it and recording `created_at`
-/// on first insert.
-pub async fn set_token_hash(
-    pool: &Pool,
-    webhook_id: &str,
-    token_hash: &str,
-) -> Result<(), DbError> {
+pub fn set_token_hash(pool: &Pool, webhook_id: &str, token_hash: &str) -> Result<(), DbError> {
     let now = now_unix();
-    sqlx::query(
+    let conn = pool.get()?;
+    conn.execute(
         "INSERT INTO webhook_tokens (webhook_id, token_hash, enabled, created_at, updated_at)
-         VALUES (?, ?, 1, ?, ?)
+         VALUES (?1, ?2, 1, ?3, ?3)
          ON CONFLICT(webhook_id) DO UPDATE SET
             token_hash = excluded.token_hash,
             enabled = 1,
             updated_at = excluded.updated_at",
-    )
-    .bind(webhook_id)
-    .bind(token_hash)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
+        rusqlite::params![webhook_id, token_hash, now],
+    )?;
     Ok(())
 }
 
-/// Revoke a webhook's token by clearing its hash and disabling the row.
-///
-/// Returns `true` if a token was present and cleared, `false` if there was
-/// nothing to revoke.
-pub async fn revoke_token(pool: &Pool, webhook_id: &str) -> Result<bool, DbError> {
-    let result = sqlx::query(
+/// Revoke a webhook's token; returns whether a token was present.
+pub fn revoke_token(pool: &Pool, webhook_id: &str) -> Result<bool, DbError> {
+    let conn = pool.get()?;
+    let n = conn.execute(
         "UPDATE webhook_tokens
-         SET token_hash = NULL, enabled = 0, updated_at = ?
-         WHERE webhook_id = ? AND token_hash IS NOT NULL",
-    )
-    .bind(now_unix())
-    .bind(webhook_id)
-    .execute(pool)
-    .await?;
-    Ok(result.rows_affected() > 0)
+         SET token_hash = NULL, enabled = 0, updated_at = ?1
+         WHERE webhook_id = ?2 AND token_hash IS NOT NULL",
+        rusqlite::params![now_unix(), webhook_id],
+    )?;
+    Ok(n > 0)
 }
 
-/// Fetch the stored token hash for a webhook, if a token is set and enabled.
-pub async fn get_token_hash(pool: &Pool, webhook_id: &str) -> Result<Option<String>, DbError> {
-    let hash: Option<String> = sqlx::query_scalar(
+/// Fetch the stored token hash for an enabled webhook with a token set.
+pub fn get_token_hash(pool: &Pool, webhook_id: &str) -> Result<Option<String>, DbError> {
+    let conn = pool.get()?;
+    let hash: Option<String> = match conn.query_row(
         "SELECT token_hash FROM webhook_tokens
-         WHERE webhook_id = ? AND enabled = 1 AND token_hash IS NOT NULL",
-    )
-    .bind(webhook_id)
-    .fetch_optional(pool)
-    .await?
-    .flatten();
+         WHERE webhook_id = ?1 AND enabled = 1 AND token_hash IS NOT NULL",
+        rusqlite::params![webhook_id],
+        |r| r.get(0),
+    ) {
+        Ok(v) => Some(v),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(e) => return Err(e.into()),
+    };
     Ok(hash)
 }
 
 /// Return whether a webhook has an active token set.
-pub async fn has_token(pool: &Pool, webhook_id: &str) -> Result<bool, DbError> {
-    Ok(get_token_hash(pool, webhook_id).await?.is_some())
+pub fn has_token(pool: &Pool, webhook_id: &str) -> Result<bool, DbError> {
+    Ok(get_token_hash(pool, webhook_id)?.is_some())
+}
+
+/// Insert a rendered notification as `pending`; returns its row ID.
+pub fn insert_notification(
+    pool: &Pool,
+    webhook_id: &str,
+    destination: &str,
+    rendered_message: &str,
+) -> Result<i64, DbError> {
+    let now = now_unix();
+    let expires_at = now + NOTIFICATION_RETENTION_SECS;
+    let conn = pool.get()?;
+    conn.execute(
+        "INSERT INTO notifications
+            (webhook_id, destination, rendered_message, status, attempts, created_at, expires_at)
+         VALUES (?1, ?2, ?3, 'pending', 0, ?4, ?5)",
+        rusqlite::params![webhook_id, destination, rendered_message, now, expires_at],
+    )?;
+    Ok(conn.last_insert_rowid())
 }
 
 /// A notification claimed by the worker for delivery.
@@ -92,340 +86,233 @@ pub struct PendingNotification {
     pub attempts: i64,
 }
 
-/// Atomically claim up to `limit` pending notifications, moving them to
-/// `processing`, and return them.
-///
-/// The claim uses a single `UPDATE ... WHERE id IN (SELECT ...)` with
-/// `RETURNING` so no two workers (or loop iterations) claim the same row.
-pub async fn claim_pending(pool: &Pool, limit: i64) -> Result<Vec<PendingNotification>, DbError> {
-    let rows: Vec<(i64, String, String, i64)> = sqlx::query_as(
+/// Atomically claim up to `limit` pending notifications → `processing`.
+pub fn claim_pending(pool: &Pool, limit: i64) -> Result<Vec<PendingNotification>, DbError> {
+    let conn = pool.get()?;
+    let mut stmt = conn.prepare(
         "UPDATE notifications
          SET status = 'processing'
          WHERE id IN (
-             SELECT id FROM notifications
-             WHERE status = 'pending'
-             ORDER BY id
-             LIMIT ?
+             SELECT id FROM notifications WHERE status = 'pending' ORDER BY id LIMIT ?1
          )
          RETURNING id, destination, rendered_message, attempts",
-    )
-    .bind(limit)
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(
-            |(id, destination, rendered_message, attempts)| PendingNotification {
-                id,
-                destination,
-                rendered_message,
-                attempts,
-            },
-        )
-        .collect())
+    )?;
+    let rows = stmt
+        .query_map(rusqlite::params![limit], |r| {
+            Ok(PendingNotification {
+                id: r.get(0)?,
+                destination: r.get(1)?,
+                rendered_message: r.get(2)?,
+                attempts: r.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
-/// Mark a notification delivered, recording the delivery timestamp.
-pub async fn mark_delivered(pool: &Pool, id: i64) -> Result<(), DbError> {
-    sqlx::query(
+/// Mark a notification delivered.
+pub fn mark_delivered(pool: &Pool, id: i64) -> Result<(), DbError> {
+    let conn = pool.get()?;
+    conn.execute(
         "UPDATE notifications
-         SET status = 'delivered', attempts = attempts + 1, delivered_at = ?
-         WHERE id = ?",
-    )
-    .bind(now_unix())
-    .bind(id)
-    .execute(pool)
-    .await?;
+         SET status = 'delivered', attempts = attempts + 1, delivered_at = ?1
+         WHERE id = ?2",
+        rusqlite::params![now_unix(), id],
+    )?;
     Ok(())
 }
 
-/// Mark a notification as failed (no further retries), recording the error.
-pub async fn mark_failed(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
-    sqlx::query(
+/// Mark a notification failed (no further retries).
+pub fn mark_failed(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
+    let conn = pool.get()?;
+    conn.execute(
         "UPDATE notifications
-         SET status = 'failed', attempts = attempts + 1, last_error = ?
-         WHERE id = ?",
-    )
-    .bind(error)
-    .bind(id)
-    .execute(pool)
-    .await?;
+         SET status = 'failed', attempts = attempts + 1, last_error = ?1
+         WHERE id = ?2",
+        rusqlite::params![error, id],
+    )?;
     Ok(())
 }
 
-/// Return a notification to `pending` for a later retry, incrementing its
-/// attempt count and recording the last error.
-pub async fn mark_for_retry(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
-    sqlx::query(
+/// Return a notification to `pending` for retry, incrementing attempts.
+pub fn mark_for_retry(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
+    let conn = pool.get()?;
+    conn.execute(
         "UPDATE notifications
-         SET status = 'pending', attempts = attempts + 1, last_error = ?
-         WHERE id = ?",
-    )
-    .bind(error)
-    .bind(id)
-    .execute(pool)
-    .await?;
+         SET status = 'pending', attempts = attempts + 1, last_error = ?1
+         WHERE id = ?2",
+        rusqlite::params![error, id],
+    )?;
     Ok(())
-}
-
-/// Insert a rendered notification in the `pending` state and return its row ID.
-pub async fn insert_notification(
-    pool: &Pool,
-    webhook_id: &str,
-    destination: &str,
-    rendered_message: &str,
-) -> Result<i64, DbError> {
-    let now = now_unix();
-    let expires_at = now + NOTIFICATION_RETENTION_SECS;
-    let result = sqlx::query(
-        "INSERT INTO notifications
-            (webhook_id, destination, rendered_message, status, attempts, created_at, expires_at)
-         VALUES (?, ?, ?, 'pending', 0, ?, ?)",
-    )
-    .bind(webhook_id)
-    .bind(destination)
-    .bind(rendered_message)
-    .bind(now)
-    .bind(expires_at)
-    .execute(pool)
-    .await?;
-    Ok(result.last_insert_rowid())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::test_pool;
 
-    async fn test_pool() -> Pool {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("connect in-memory sqlite");
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .expect("run migrations");
-        pool
+    fn status_of(pool: &Pool, id: i64) -> String {
+        pool.get()
+            .unwrap()
+            .query_row(
+                "SELECT status FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap()
     }
 
-    #[tokio::test]
-    async fn no_token_initially() {
-        let pool = test_pool().await;
-        assert!(!has_token(&pool, "wud").await.unwrap());
-        assert_eq!(get_token_hash(&pool, "wud").await.unwrap(), None);
+    fn attempts_of(pool: &Pool, id: i64) -> i64 {
+        pool.get()
+            .unwrap()
+            .query_row(
+                "SELECT attempts FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
+            .unwrap()
     }
 
-    #[tokio::test]
-    async fn set_then_get_token_hash() {
-        // Arrange
-        let pool = test_pool().await;
-        // Act
-        set_token_hash(&pool, "wud", "deadbeef").await.unwrap();
-        // Assert
-        assert!(has_token(&pool, "wud").await.unwrap());
+    #[test]
+    fn no_token_initially() {
+        let pool = test_pool();
+        assert!(!has_token(&pool, "wud").unwrap());
+        assert_eq!(get_token_hash(&pool, "wud").unwrap(), None);
+    }
+
+    #[test]
+    fn set_then_get_token_hash() {
+        let pool = test_pool();
+        set_token_hash(&pool, "wud", "deadbeef").unwrap();
+        assert!(has_token(&pool, "wud").unwrap());
         assert_eq!(
-            get_token_hash(&pool, "wud").await.unwrap(),
+            get_token_hash(&pool, "wud").unwrap(),
             Some("deadbeef".to_owned())
         );
     }
 
-    #[tokio::test]
-    async fn setting_token_again_replaces_it() {
-        let pool = test_pool().await;
-        set_token_hash(&pool, "wud", "first").await.unwrap();
-        set_token_hash(&pool, "wud", "second").await.unwrap();
+    #[test]
+    fn setting_token_again_replaces_it() {
+        let pool = test_pool();
+        set_token_hash(&pool, "wud", "first").unwrap();
+        set_token_hash(&pool, "wud", "second").unwrap();
         assert_eq!(
-            get_token_hash(&pool, "wud").await.unwrap(),
+            get_token_hash(&pool, "wud").unwrap(),
             Some("second".to_owned())
         );
-        // Still a single row.
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webhook_tokens")
-            .fetch_one(&pool)
-            .await
+        let count: i64 = pool
+            .get()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM webhook_tokens", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1);
     }
 
-    #[tokio::test]
-    async fn revoke_clears_token() {
-        // Arrange
-        let pool = test_pool().await;
-        set_token_hash(&pool, "wud", "deadbeef").await.unwrap();
-
-        // Act
-        let revoked = revoke_token(&pool, "wud").await.unwrap();
-
-        // Assert
-        assert!(revoked);
-        assert!(!has_token(&pool, "wud").await.unwrap());
-        assert_eq!(get_token_hash(&pool, "wud").await.unwrap(), None);
+    #[test]
+    fn revoke_clears_token() {
+        let pool = test_pool();
+        set_token_hash(&pool, "wud", "deadbeef").unwrap();
+        assert!(revoke_token(&pool, "wud").unwrap());
+        assert!(!has_token(&pool, "wud").unwrap());
+        assert_eq!(get_token_hash(&pool, "wud").unwrap(), None);
     }
 
-    #[tokio::test]
-    async fn revoke_without_token_returns_false() {
-        let pool = test_pool().await;
-        assert!(!revoke_token(&pool, "wud").await.unwrap());
+    #[test]
+    fn revoke_without_token_returns_false() {
+        let pool = test_pool();
+        assert!(!revoke_token(&pool, "wud").unwrap());
     }
 
-    #[tokio::test]
-    async fn insert_notification_creates_pending_row() {
-        // Arrange
-        let pool = test_pool().await;
-
-        // Act
-        let id = insert_notification(&pool, "wud", "containers", "hello")
-            .await
-            .unwrap();
-
-        // Assert
+    #[test]
+    fn insert_notification_creates_pending_row() {
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "hello").unwrap();
         assert!(id > 0);
-        let (status, dest, msg): (String, String, String) = sqlx::query_as(
-            "SELECT status, destination, rendered_message FROM notifications WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(status, "pending");
-        assert_eq!(dest, "containers");
-        assert_eq!(msg, "hello");
+        assert_eq!(status_of(&pool, id), "pending");
     }
 
-    #[tokio::test]
-    async fn insert_notification_sets_expiry_30_days_out() {
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "hello")
-            .await
+    #[test]
+    fn insert_notification_sets_expiry_30_days_out() {
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "hello").unwrap();
+        let (created, expires): (i64, i64) = pool
+            .get()
+            .unwrap()
+            .query_row(
+                "SELECT created_at, expires_at FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
-        let (created, expires): (i64, i64) =
-            sqlx::query_as("SELECT created_at, expires_at FROM notifications WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
         assert_eq!(expires - created, NOTIFICATION_RETENTION_SECS);
     }
 
-    async fn status_of(pool: &Pool, id: i64) -> String {
-        sqlx::query_scalar("SELECT status FROM notifications WHERE id = ?")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .unwrap()
-    }
-
-    async fn attempts_of(pool: &Pool, id: i64) -> i64 {
-        sqlx::query_scalar("SELECT attempts FROM notifications WHERE id = ?")
-            .bind(id)
-            .fetch_one(pool)
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn claim_pending_moves_rows_to_processing() {
-        // Arrange
-        let pool = test_pool().await;
-        let id1 = insert_notification(&pool, "wud", "containers", "a")
-            .await
-            .unwrap();
-        let id2 = insert_notification(&pool, "wud", "containers", "b")
-            .await
-            .unwrap();
-
-        // Act
-        let claimed = claim_pending(&pool, 10).await.unwrap();
-
-        // Assert: both claimed, both now processing.
+    #[test]
+    fn claim_pending_moves_rows_to_processing() {
+        let pool = test_pool();
+        let id1 = insert_notification(&pool, "wud", "containers", "a").unwrap();
+        let id2 = insert_notification(&pool, "wud", "containers", "b").unwrap();
+        let claimed = claim_pending(&pool, 10).unwrap();
         assert_eq!(claimed.len(), 2);
-        assert_eq!(status_of(&pool, id1).await, "processing");
-        assert_eq!(status_of(&pool, id2).await, "processing");
+        assert_eq!(status_of(&pool, id1), "processing");
+        assert_eq!(status_of(&pool, id2), "processing");
     }
 
-    #[tokio::test]
-    async fn claim_pending_does_not_reclaim_processing_rows() {
-        let pool = test_pool().await;
-        insert_notification(&pool, "wud", "containers", "a")
-            .await
-            .unwrap();
-
-        // First claim takes the row.
-        let first = claim_pending(&pool, 10).await.unwrap();
-        assert_eq!(first.len(), 1);
-        // Second claim finds nothing (the row is already processing).
-        let second = claim_pending(&pool, 10).await.unwrap();
-        assert!(second.is_empty());
+    #[test]
+    fn claim_pending_does_not_reclaim_processing_rows() {
+        let pool = test_pool();
+        insert_notification(&pool, "wud", "containers", "a").unwrap();
+        assert_eq!(claim_pending(&pool, 10).unwrap().len(), 1);
+        assert!(claim_pending(&pool, 10).unwrap().is_empty());
     }
 
-    #[tokio::test]
-    async fn claim_pending_respects_limit() {
-        let pool = test_pool().await;
+    #[test]
+    fn claim_pending_respects_limit() {
+        let pool = test_pool();
         for _ in 0..3 {
-            insert_notification(&pool, "wud", "containers", "x")
-                .await
-                .unwrap();
+            insert_notification(&pool, "wud", "containers", "x").unwrap();
         }
-        let claimed = claim_pending(&pool, 2).await.unwrap();
-        assert_eq!(claimed.len(), 2);
+        assert_eq!(claim_pending(&pool, 2).unwrap().len(), 2);
     }
 
-    #[tokio::test]
-    async fn mark_delivered_sets_status_and_timestamp() {
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "a")
-            .await
+    #[test]
+    fn mark_delivered_sets_status_and_timestamp() {
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "a").unwrap();
+        claim_pending(&pool, 10).unwrap();
+        mark_delivered(&pool, id).unwrap();
+        assert_eq!(status_of(&pool, id), "delivered");
+        assert_eq!(attempts_of(&pool, id), 1);
+        let delivered_at: Option<i64> = pool
+            .get()
+            .unwrap()
+            .query_row(
+                "SELECT delivered_at FROM notifications WHERE id = ?1",
+                rusqlite::params![id],
+                |r| r.get(0),
+            )
             .unwrap();
-        claim_pending(&pool, 10).await.unwrap();
-
-        mark_delivered(&pool, id).await.unwrap();
-
-        assert_eq!(status_of(&pool, id).await, "delivered");
-        assert_eq!(attempts_of(&pool, id).await, 1);
-        let delivered_at: Option<i64> =
-            sqlx::query_scalar("SELECT delivered_at FROM notifications WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
         assert!(delivered_at.is_some());
     }
 
-    #[tokio::test]
-    async fn mark_failed_sets_status_and_error() {
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "a")
-            .await
-            .unwrap();
-
-        mark_failed(&pool, id, "boom").await.unwrap();
-
-        assert_eq!(status_of(&pool, id).await, "failed");
-        assert_eq!(attempts_of(&pool, id).await, 1);
-        let err: Option<String> =
-            sqlx::query_scalar("SELECT last_error FROM notifications WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(err.as_deref(), Some("boom"));
+    #[test]
+    fn mark_failed_sets_status_and_error() {
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "a").unwrap();
+        mark_failed(&pool, id, "boom").unwrap();
+        assert_eq!(status_of(&pool, id), "failed");
+        assert_eq!(attempts_of(&pool, id), 1);
     }
 
-    #[tokio::test]
-    async fn mark_for_retry_returns_to_pending_and_increments_attempts() {
-        let pool = test_pool().await;
-        let id = insert_notification(&pool, "wud", "containers", "a")
-            .await
-            .unwrap();
-        claim_pending(&pool, 10).await.unwrap();
-
-        mark_for_retry(&pool, id, "temporary").await.unwrap();
-
-        assert_eq!(status_of(&pool, id).await, "pending");
-        assert_eq!(attempts_of(&pool, id).await, 1);
-        // It can be claimed again.
-        let claimed = claim_pending(&pool, 10).await.unwrap();
+    #[test]
+    fn mark_for_retry_returns_to_pending_and_increments_attempts() {
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "a").unwrap();
+        claim_pending(&pool, 10).unwrap();
+        mark_for_retry(&pool, id, "temporary").unwrap();
+        assert_eq!(status_of(&pool, id), "pending");
+        assert_eq!(attempts_of(&pool, id), 1);
+        let claimed = claim_pending(&pool, 10).unwrap();
         assert_eq!(claimed.len(), 1);
         assert_eq!(claimed[0].attempts, 1);
     }

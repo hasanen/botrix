@@ -61,6 +61,14 @@ CREATE TABLE notifications (
 CREATE INDEX idx_notifications_status     ON notifications (status);
 CREATE INDEX idx_notifications_expires_at ON notifications (expires_at);
 
+-- Browser admin sessions (tower-sessions SqliteSessionStore).
+CREATE TABLE sessions (
+    id          TEXT    PRIMARY KEY,   -- session Id as decimal i128 string
+    data        TEXT    NOT NULL,      -- serde_json-encoded Record
+    expiry_date INTEGER NOT NULL       -- Unix timestamp
+);
+CREATE INDEX idx_sessions_expiry ON sessions (expiry_date);
+
 CREATE TABLE log_events (
     id         INTEGER PRIMARY KEY,
     level      TEXT    NOT NULL,
