@@ -8,6 +8,7 @@
 
 pub mod auth;
 pub mod maintenance;
+pub mod matrix;
 pub mod migrate;
 pub mod models;
 pub mod session_store;

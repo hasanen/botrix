@@ -68,6 +68,23 @@ impl From<crate::db::DbError> for ApiError {
     }
 }
 
+impl From<crate::matrix::MatrixError> for ApiError {
+    fn from(err: crate::matrix::MatrixError) -> Self {
+        use crate::matrix::MatrixError;
+        match err {
+            // Caller-facing misconfiguration maps to 400.
+            MatrixError::UnknownDestination(msg) => ApiError::BadRequest(msg),
+            MatrixError::InvalidRoomId { room_id, reason } => {
+                ApiError::BadRequest(format!("invalid room ID '{room_id}': {reason}"))
+            }
+            // No active session is a conflict with the requested operation.
+            MatrixError::NoSession => ApiError::Conflict("no active Matrix session".to_owned()),
+            // Everything else (SDK, crypto, client build, DB) is internal.
+            _ => ApiError::Internal,
+        }
+    }
+}
+
 impl From<tower_sessions::session::Error> for ApiError {
     fn from(_: tower_sessions::session::Error) -> Self {
         ApiError::Internal

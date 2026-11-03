@@ -28,8 +28,15 @@ serde_yaml = "0.9"
 rusqlite = { version = "0.37", features = ["bundled"] }
 r2d2 = "0.8"
 r2d2_sqlite = "0.31"
-# NOTE: pinned to the rusqlite/libsqlite3-sys line matrix-sdk-sqlite uses so a
-# single native sqlite3 is linked once matrix-sdk is added back in Phase 6.
+# rusqlite 0.37 -> libsqlite3-sys 0.35, matching matrix-sdk-sqlite so a single
+# native sqlite3 is linked.
+matrix-sdk = { version = "0.14", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "rustls-tls"] }
+# Application-level OAuth-token encryption at rest (§16.1). Both crates are
+# already in the resolved dependency tree (pulled transitively by matrix-sdk /
+# vodozemac), so declaring them directly reuses the existing versions without
+# adding a new crate to the build.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+hkdf = "0.12"
 argon2 = "0.5"
 tower-sessions = "0.14"
 rand = "0.8"

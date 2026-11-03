@@ -7,8 +7,13 @@
 //! placeholder stubs used by other modules during earlier phases.
 
 pub mod auth;
+pub mod client;
+pub mod crypto;
+pub mod sender;
 pub mod session;
 pub mod worker;
+
+pub use sender::MatrixSender;
 
 use async_trait::async_trait;
 use thiserror::Error;
@@ -53,6 +58,27 @@ pub enum MatrixError {
     /// The recovery key was rejected by the server.
     #[error("invalid recovery key")]
     InvalidRecoveryKey,
+    /// Encrypting an OAuth token for storage failed.
+    #[error("token encryption failed: {0}")]
+    TokenEncryption(String),
+    /// Decrypting a stored OAuth token failed (bad passphrase, tampering, or
+    /// corruption).
+    #[error("token decryption failed: {0}")]
+    TokenDecryption(String),
+    /// A destination name was not found in the configuration.
+    #[error("unknown destination '{0}'")]
+    UnknownDestination(String),
+    /// A configured room ID could not be parsed.
+    #[error("invalid room ID '{room_id}': {reason}")]
+    InvalidRoomId {
+        /// The offending room ID.
+        room_id: String,
+        /// Why parsing failed.
+        reason: String,
+    },
+    /// Building or opening the Matrix client/store failed.
+    #[error("failed to build Matrix client: {0}")]
+    ClientBuild(String),
     /// A database error occurred while persisting session state.
     #[error("database error: {0}")]
     Database(#[from] crate::db::DbError),

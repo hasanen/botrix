@@ -23,6 +23,9 @@ thiserror = { workspace = true }
 rusqlite = { workspace = true }
 r2d2 = { workspace = true }
 r2d2_sqlite = { workspace = true }
+matrix-sdk = { workspace = true }
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
 argon2 = { workspace = true }
 tower-sessions = { workspace = true }
 rand = { workspace = true }

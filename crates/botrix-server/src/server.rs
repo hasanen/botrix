@@ -60,11 +60,42 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     // Start the periodic history cleanup task.
     crate::db::maintenance::spawn_cleanup_task(pool.clone());
 
-    // Start the background notification worker. Until Matrix is wired up
-    // (Phase 6) it uses a stub sender that keeps notifications queued.
-    let sender: std::sync::Arc<dyn crate::queue::sender::MessageSender> =
-        std::sync::Arc::new(crate::matrix::StubSender);
-    crate::queue::worker::spawn(pool.clone(), sender);
+    // Attempt to restore a persisted Matrix session (§9.4). On success the
+    // worker and API share a live-client-backed sender; otherwise they use the
+    // stub sender that keeps notifications queued. Matrix connectivity is not
+    // required for the server to run.
+    let crypto_passphrase = _crypto_passphrase;
+    let matrix_client = match crate::matrix::client::restore_client(
+        &pool,
+        &config,
+        data_dir,
+        &crypto_passphrase,
+    )
+    .await
+    {
+        Ok(client) => client,
+        Err(err) => {
+            tracing::error!(error = %err, "error during Matrix session restore; continuing disconnected");
+            None
+        }
+    };
+
+    let sender: std::sync::Arc<dyn crate::queue::sender::MessageSender> = match &matrix_client {
+        Some(client) => {
+            tracing::info!("Matrix session active; using live message sender");
+            std::sync::Arc::new(crate::matrix::MatrixSender::new(
+                client.clone(),
+                crate::matrix::client::destination_map(&config),
+            ))
+        }
+        None => {
+            tracing::info!("Matrix not connected; using stub message sender");
+            std::sync::Arc::new(crate::matrix::StubSender)
+        }
+    };
+
+    // Start the background notification worker with the chosen sender.
+    crate::queue::worker::spawn(pool.clone(), sender.clone());
 
     // For local HTTP testing, allow disabling Secure cookies via env so the
     // browser accepts them over plain http://localhost. Defaults to secure.
@@ -72,7 +103,15 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         .map(|v| v != "1" && v.to_lowercase() != "true")
         .unwrap_or(true);
 
-    let mut router = build_app(pool, config.clone(), &session_secret, secure_cookies).await?;
+    let mut router = build_app_with_matrix(
+        pool,
+        config.clone(),
+        &session_secret,
+        secure_cookies,
+        sender,
+        matrix_client,
+    )
+    .await?;
 
     // Serve the compiled frontend from BOTRIX_FRONTEND_DIR if set, with an
     // SPA fallback to index.html for client-side routing.
@@ -109,6 +148,25 @@ pub async fn build_app(
     session_secret: &str,
     secure_cookies: bool,
 ) -> Result<Router, ServerError> {
+    // Default to the stub sender and no Matrix client. Production startup uses
+    // [`build_app_with_matrix`] to inject a live-client-backed sender.
+    let sender: Arc<dyn crate::queue::sender::MessageSender> = Arc::new(crate::matrix::StubSender);
+    build_app_with_matrix(pool, config, session_secret, secure_cookies, sender, None).await
+}
+
+/// Build the application router, injecting the message sender and optional
+/// Matrix client into shared state.
+///
+/// Used by production startup so the test-message endpoint and the delivery
+/// worker share one sender, and the Matrix API can introspect the live client.
+pub async fn build_app_with_matrix(
+    pool: crate::db::Pool,
+    config: Config,
+    session_secret: &str,
+    secure_cookies: bool,
+    sender: Arc<dyn crate::queue::sender::MessageSender>,
+    matrix_client: Option<matrix_sdk::Client>,
+) -> Result<Router, ServerError> {
     // The sessions table is created by our migrations; no store migrate step.
     let session_store = SqliteSessionStore::new(pool.clone());
 
@@ -134,6 +192,8 @@ pub async fn build_app(
         pool,
         config: Arc::new(config),
         csrf_config,
+        sender,
+        matrix_client,
     };
 
     Ok(build_router(state).layer(session_layer))
@@ -141,7 +201,7 @@ pub async fn build_app(
 
 /// Assemble the API router with the given application state.
 fn build_router(state: AppState) -> Router {
-    use crate::api::{auth, settings, webhooks as api_webhooks};
+    use crate::api::{auth, matrix as api_matrix, settings, webhooks as api_webhooks};
     use crate::webhooks::handler as webhook_handler;
     use axum::extract::DefaultBodyLimit;
 
@@ -176,6 +236,20 @@ fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/webhooks/{id}/token",
             post(api_webhooks::generate_token).delete(api_webhooks::revoke_token),
+        )
+        // Matrix integration (authenticated)
+        .route("/api/v1/matrix/status", get(api_matrix::status))
+        .route("/api/v1/matrix/rooms", get(api_matrix::rooms))
+        .route("/api/v1/matrix/connect", post(api_matrix::connect))
+        .route("/api/v1/matrix/connect/poll", get(api_matrix::connect_poll))
+        .route("/api/v1/matrix/disconnect", post(api_matrix::disconnect))
+        .route(
+            "/api/v1/matrix/test-message",
+            post(api_matrix::test_message),
+        )
+        .route(
+            "/api/v1/matrix/recovery-key",
+            post(api_matrix::recovery_key),
         )
         .merge(notify)
         .with_state(state)
