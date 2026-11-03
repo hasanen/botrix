@@ -1,0 +1,41 @@
+# Example Botrix configuration.
+#
+# Copy this to your config location (default: /config/config.yaml) and edit.
+# The config is validated at startup — invalid config prevents the app from
+# starting with a descriptive error. Changes require a restart.
+
+matrix:
+  homeserver: https://matrix.example.com
+
+  destinations:
+    containers:
+      room_id: "!abc123:matrix.example.com"
+      enabled: true
+    homelab:
+      room_id: "!def456:matrix.example.com"
+      enabled: true
+
+webhooks:
+  wud:
+    enabled: true
+    destination: containers
+    msg_template: |
+      Docker image update available!
+
+      Container: ${name}
+      Image: ${image.name}
+      Current tag: ${image.tag.value}
+      New tag: ${result.tag}
+
+  homeassistant:
+    enabled: true
+    destination: homelab
+    msg_template: |
+      ${title}
+
+      ${message}
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  max_body_bytes: 262144
