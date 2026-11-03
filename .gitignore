@@ -1,0 +1,32 @@
+# Build artifacts
+/target/
+dist/
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dev data directories
+dev-data/
+dev-config/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Trunk WASM build output
+/crates/botrix-frontend/dist/
+
+# Internal planning docs
+docs/implementation-plan.md
