@@ -1,0 +1,19 @@
+title: Botrix
+description: Self-hosted Matrix notification gateway
+baseurl: "/botrix"
+url: "https://hasanen.github.io"
+
+theme: just-the-docs
+
+# implementation-plan.md is excluded via .gitignore — not committed to the repo
+# No additional Jekyll excludes needed
+
+# Navigation order is set via front-matter nav_order in each page
+nav_sort: order
+
+# Footer
+footer_content: "MIT License &bull; <a href=\"https://github.com/hasanen/botrix\">GitHub</a>"
+
+# Syntax highlighting
+highlighter: rouge
+markdown: kramdown
