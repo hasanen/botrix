@@ -3,6 +3,7 @@
 //! Manages the application database at `$BOTRIX_DATA_DIR/botrix.db`.
 //! The Matrix SDK manages its own stores separately under `$BOTRIX_DATA_DIR/matrix/`.
 
+pub mod maintenance;
 pub mod models;
 
 use thiserror::Error;
@@ -37,6 +38,16 @@ pub async fn init(db_path: &str) -> Result<Pool, DbError> {
     let pool = sqlx::SqlitePool::connect_with(options).await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
+
+    // Recover any notifications left in the `processing` state by a crash
+    // during a previous run, before any worker begins polling.
+    let recovered = maintenance::recover_stuck_notifications(&pool).await?;
+    if recovered > 0 {
+        tracing::warn!(
+            count = recovered,
+            "reset notifications stuck in 'processing' to 'pending' after restart"
+        );
+    }
 
     tracing::info!(db_path, "database initialized");
     Ok(pool)

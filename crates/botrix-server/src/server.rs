@@ -9,14 +9,21 @@ use crate::config::Config;
 pub enum ServerError {
     /// A required environment variable is missing or invalid.
     #[error("missing required environment variable '{name}': {reason}")]
-    MissingEnv { name: &'static str, reason: String },
+    MissingEnv {
+        /// Name of the required environment variable.
+        name: &'static str,
+        /// Why the variable is considered missing or invalid.
+        reason: String,
+    },
     /// The database could not be initialized.
     #[error("database initialization failed: {0}")]
     Database(#[from] crate::db::DbError),
     /// The TCP listener could not be bound.
     #[error("failed to bind {addr}: {source}")]
     Bind {
+        /// Address that could not be bound.
         addr: String,
+        /// Underlying I/O error.
         #[source]
         source: std::io::Error,
     },
@@ -33,9 +40,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     let _session_secret = require_env("BOTRIX_SESSION_SECRET")?;
     let _crypto_passphrase = require_env("BOTRIX_CRYPTO_PASSPHRASE")?;
 
-    // Initialize the application database.
+    // Initialize the application database (runs migrations and crash recovery).
     let db_path = format!("{data_dir}/botrix.db");
-    let _pool = crate::db::init(&db_path).await?;
+    let pool = crate::db::init(&db_path).await?;
+
+    // Start the periodic history cleanup task.
+    crate::db::maintenance::spawn_cleanup_task(pool.clone());
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     tracing::info!(%addr, "starting Botrix server");

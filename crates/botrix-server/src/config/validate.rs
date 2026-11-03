@@ -17,14 +17,21 @@ pub enum ValidationError {
     #[error(
         "destinations.{name}.room_id has invalid format '{room_id}' — expected '!<id>:<server>'"
     )]
-    InvalidRoomId { name: String, room_id: String },
+    InvalidRoomId {
+        /// Destination name whose room ID is invalid.
+        name: String,
+        /// The offending room ID value.
+        room_id: String,
+    },
 
     /// A webhook references a destination that is not defined.
     #[error(
         "webhooks.{webhook}.destination '{destination}' is not defined in matrix.destinations"
     )]
     UnknownDestination {
+        /// Webhook identifier that references the missing destination.
         webhook: String,
+        /// The destination name that is not defined.
         destination: String,
     },
 

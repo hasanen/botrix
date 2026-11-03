@@ -10,10 +10,16 @@ use unicode_normalization::UnicodeNormalization;
 pub enum TemplateError {
     /// A variable path referenced in the template was not found in the payload.
     #[error("template variable '${{{}}}' not found in payload", .path)]
-    MissingVariable { path: String },
+    MissingVariable {
+        /// The variable path that could not be resolved.
+        path: String,
+    },
     /// A variable path resolved to a non-scalar JSON value.
     #[error("template variable '${{{}}}' resolved to a non-scalar value (array or object)", .path)]
-    NonScalarValue { path: String },
+    NonScalarValue {
+        /// The variable path that resolved to an array or object.
+        path: String,
+    },
 }
 
 /// Maximum length of a single substituted value, in characters.

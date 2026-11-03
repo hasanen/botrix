@@ -18,14 +18,18 @@ pub enum ConfigError {
     /// The configuration file could not be read.
     #[error("failed to read config file '{path}': {source}")]
     ReadFile {
+        /// Path of the file that could not be read.
         path: String,
+        /// Underlying I/O error.
         #[source]
         source: std::io::Error,
     },
     /// The configuration file could not be parsed as valid YAML.
     #[error("failed to parse config file '{path}': {source}")]
     ParseYaml {
+        /// Path of the file that could not be parsed.
         path: String,
+        /// Underlying YAML deserialization error.
         #[source]
         source: serde_yaml::Error,
     },

@@ -1,24 +1,14 @@
 //! Binary entry point — parses CLI arguments and dispatches to subcommands.
+//!
+//! All logic lives in the `botrix_server` library crate; this binary only
+//! initializes logging, parses arguments, and maps errors to an exit code.
 
 #![deny(missing_docs)]
-// Phase 0 scaffolding: many types, error variants, and helpers are defined
-// ahead of the phase that wires them in (see docs/implementation-plan.md §17).
-// This allow is removed as modules are connected in later phases.
-#![allow(dead_code)]
 
 use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-mod api;
-mod cli;
-mod config;
-mod db;
-mod matrix;
-mod queue;
-mod server;
-mod webhooks;
-
-use cli::{Cli, Commands};
+use botrix_server::cli::{self, Cli, Commands};
 
 #[tokio::main]
 async fn main() {
