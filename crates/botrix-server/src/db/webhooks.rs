@@ -79,6 +79,96 @@ pub async fn has_token(pool: &Pool, webhook_id: &str) -> Result<bool, DbError> {
     Ok(get_token_hash(pool, webhook_id).await?.is_some())
 }
 
+/// A notification claimed by the worker for delivery.
+#[derive(Debug, Clone)]
+pub struct PendingNotification {
+    /// Row ID.
+    pub id: i64,
+    /// Logical destination name.
+    pub destination: String,
+    /// Fully rendered message.
+    pub rendered_message: String,
+    /// Number of attempts made before this claim.
+    pub attempts: i64,
+}
+
+/// Atomically claim up to `limit` pending notifications, moving them to
+/// `processing`, and return them.
+///
+/// The claim uses a single `UPDATE ... WHERE id IN (SELECT ...)` with
+/// `RETURNING` so no two workers (or loop iterations) claim the same row.
+pub async fn claim_pending(pool: &Pool, limit: i64) -> Result<Vec<PendingNotification>, DbError> {
+    let rows: Vec<(i64, String, String, i64)> = sqlx::query_as(
+        "UPDATE notifications
+         SET status = 'processing'
+         WHERE id IN (
+             SELECT id FROM notifications
+             WHERE status = 'pending'
+             ORDER BY id
+             LIMIT ?
+         )
+         RETURNING id, destination, rendered_message, attempts",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, destination, rendered_message, attempts)| PendingNotification {
+                id,
+                destination,
+                rendered_message,
+                attempts,
+            },
+        )
+        .collect())
+}
+
+/// Mark a notification delivered, recording the delivery timestamp.
+pub async fn mark_delivered(pool: &Pool, id: i64) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE notifications
+         SET status = 'delivered', attempts = attempts + 1, delivered_at = ?
+         WHERE id = ?",
+    )
+    .bind(now_unix())
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Mark a notification as failed (no further retries), recording the error.
+pub async fn mark_failed(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE notifications
+         SET status = 'failed', attempts = attempts + 1, last_error = ?
+         WHERE id = ?",
+    )
+    .bind(error)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Return a notification to `pending` for a later retry, incrementing its
+/// attempt count and recording the last error.
+pub async fn mark_for_retry(pool: &Pool, id: i64, error: &str) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE notifications
+         SET status = 'pending', attempts = attempts + 1, last_error = ?
+         WHERE id = ?",
+    )
+    .bind(error)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Insert a rendered notification in the `pending` state and return its row ID.
 pub async fn insert_notification(
     pool: &Pool,
@@ -216,5 +306,127 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(expires - created, NOTIFICATION_RETENTION_SECS);
+    }
+
+    async fn status_of(pool: &Pool, id: i64) -> String {
+        sqlx::query_scalar("SELECT status FROM notifications WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    async fn attempts_of(pool: &Pool, id: i64) -> i64 {
+        sqlx::query_scalar("SELECT attempts FROM notifications WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn claim_pending_moves_rows_to_processing() {
+        // Arrange
+        let pool = test_pool().await;
+        let id1 = insert_notification(&pool, "wud", "containers", "a")
+            .await
+            .unwrap();
+        let id2 = insert_notification(&pool, "wud", "containers", "b")
+            .await
+            .unwrap();
+
+        // Act
+        let claimed = claim_pending(&pool, 10).await.unwrap();
+
+        // Assert: both claimed, both now processing.
+        assert_eq!(claimed.len(), 2);
+        assert_eq!(status_of(&pool, id1).await, "processing");
+        assert_eq!(status_of(&pool, id2).await, "processing");
+    }
+
+    #[tokio::test]
+    async fn claim_pending_does_not_reclaim_processing_rows() {
+        let pool = test_pool().await;
+        insert_notification(&pool, "wud", "containers", "a")
+            .await
+            .unwrap();
+
+        // First claim takes the row.
+        let first = claim_pending(&pool, 10).await.unwrap();
+        assert_eq!(first.len(), 1);
+        // Second claim finds nothing (the row is already processing).
+        let second = claim_pending(&pool, 10).await.unwrap();
+        assert!(second.is_empty());
+    }
+
+    #[tokio::test]
+    async fn claim_pending_respects_limit() {
+        let pool = test_pool().await;
+        for _ in 0..3 {
+            insert_notification(&pool, "wud", "containers", "x")
+                .await
+                .unwrap();
+        }
+        let claimed = claim_pending(&pool, 2).await.unwrap();
+        assert_eq!(claimed.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn mark_delivered_sets_status_and_timestamp() {
+        let pool = test_pool().await;
+        let id = insert_notification(&pool, "wud", "containers", "a")
+            .await
+            .unwrap();
+        claim_pending(&pool, 10).await.unwrap();
+
+        mark_delivered(&pool, id).await.unwrap();
+
+        assert_eq!(status_of(&pool, id).await, "delivered");
+        assert_eq!(attempts_of(&pool, id).await, 1);
+        let delivered_at: Option<i64> =
+            sqlx::query_scalar("SELECT delivered_at FROM notifications WHERE id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(delivered_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn mark_failed_sets_status_and_error() {
+        let pool = test_pool().await;
+        let id = insert_notification(&pool, "wud", "containers", "a")
+            .await
+            .unwrap();
+
+        mark_failed(&pool, id, "boom").await.unwrap();
+
+        assert_eq!(status_of(&pool, id).await, "failed");
+        assert_eq!(attempts_of(&pool, id).await, 1);
+        let err: Option<String> =
+            sqlx::query_scalar("SELECT last_error FROM notifications WHERE id = ?")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(err.as_deref(), Some("boom"));
+    }
+
+    #[tokio::test]
+    async fn mark_for_retry_returns_to_pending_and_increments_attempts() {
+        let pool = test_pool().await;
+        let id = insert_notification(&pool, "wud", "containers", "a")
+            .await
+            .unwrap();
+        claim_pending(&pool, 10).await.unwrap();
+
+        mark_for_retry(&pool, id, "temporary").await.unwrap();
+
+        assert_eq!(status_of(&pool, id).await, "pending");
+        assert_eq!(attempts_of(&pool, id).await, 1);
+        // It can be claimed again.
+        let claimed = claim_pending(&pool, 10).await.unwrap();
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].attempts, 1);
     }
 }

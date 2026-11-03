@@ -10,7 +10,27 @@ pub mod auth;
 pub mod session;
 pub mod worker;
 
+use async_trait::async_trait;
 use thiserror::Error;
+
+use crate::queue::sender::{MessageSender, SendError};
+
+/// A placeholder [`MessageSender`] used until the real Matrix client exists.
+///
+/// Every send fails transiently, so notifications stay queued and are retried
+/// rather than lost or marked delivered. Phase 6 replaces this with a sender
+/// backed by the live `matrix-sdk` client.
+#[derive(Debug, Default)]
+pub struct StubSender;
+
+#[async_trait]
+impl MessageSender for StubSender {
+    async fn send(&self, destination: &str, _message: &str) -> Result<(), SendError> {
+        Err(SendError::Transient(format!(
+            "Matrix client not connected; cannot deliver to '{destination}'"
+        )))
+    }
+}
 
 /// Errors that can occur in the Matrix subsystem.
 #[derive(Debug, Error)]

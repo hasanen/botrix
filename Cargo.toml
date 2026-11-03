@@ -41,6 +41,7 @@ axum_csrf = "0.12"
 anyhow = "1"
 unicode-normalization = "0.1"
 time = "0.3"
+async-trait = "0.1"
 
 # Frontend-only
 leptos = { version = "0.7", features = ["csr"] }

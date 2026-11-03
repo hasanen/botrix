@@ -1,21 +1,11 @@
 //! Background notification delivery worker.
 //!
-//! Picks up `pending` notifications from the database and delivers them to
-//! Matrix, with exponential backoff retry logic.
-//!
-//! Full implementation is Phase 5.
+//! - [`sender`] — the [`MessageSender`](sender::MessageSender) boundary the
+//!   worker delivers through (implemented by the Matrix subsystem in Phase 6).
+//! - [`retry`] — pure retry/backoff decision logic and schedule.
+//! - [`worker`] — the Tokio polling loop that claims `pending` notifications,
+//!   delivers them, and applies the retry decision.
 
+pub mod retry;
+pub mod sender;
 pub mod worker;
-
-use thiserror::Error;
-
-/// Errors that can occur in the background queue.
-#[derive(Debug, Error)]
-pub enum QueueError {
-    /// A database operation failed.
-    #[error("database error: {0}")]
-    Database(#[from] crate::db::DbError),
-    /// The Matrix client rejected the message.
-    #[error("matrix delivery failed: {0}")]
-    MatrixDelivery(String),
-}

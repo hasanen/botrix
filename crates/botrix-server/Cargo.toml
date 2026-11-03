@@ -38,6 +38,7 @@ axum_csrf = { workspace = true }
 anyhow = { workspace = true }
 unicode-normalization = { workspace = true }
 time = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

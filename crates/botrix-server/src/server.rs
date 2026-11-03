@@ -63,6 +63,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     // Start the periodic history cleanup task.
     crate::db::maintenance::spawn_cleanup_task(pool.clone());
 
+    // Start the background notification worker. Until Matrix is wired up
+    // (Phase 6) it uses a stub sender that keeps notifications queued.
+    let sender: std::sync::Arc<dyn crate::queue::sender::MessageSender> =
+        std::sync::Arc::new(crate::matrix::StubSender);
+    crate::queue::worker::spawn(pool.clone(), sender);
+
     // Production cookies are Secure; operators terminate TLS upstream.
     let secure_cookies = true;
     let router = build_app(pool, config.clone(), &session_secret, secure_cookies).await?;
