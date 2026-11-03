@@ -19,5 +19,5 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL \
 RUN curl --proto '=https' --tlsv1.2 -sSf \
     https://just.systems/install.sh | bash -s -- --to /usr/local/bin
 
-RUN useradd -m vscode
-USER vscode
+RUN useradd -m container
+USER container

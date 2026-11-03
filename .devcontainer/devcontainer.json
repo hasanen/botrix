@@ -16,5 +16,5 @@
     }
   },
   "forwardPorts": [8080, 3000],
-  "remoteUser": "vscode"
+  "remoteUser": "container"
 }
