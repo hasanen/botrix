@@ -1,0 +1,15 @@
+services:
+  botrix:
+    image: botrix:dev
+    build:
+      context: .
+      dockerfile: Containerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dev-data:/data
+      - ./dev-config:/config:ro
+    environment:
+      - BOTRIX_SESSION_SECRET=dev-secret-change-me
+      - BOTRIX_CRYPTO_PASSPHRASE=dev-passphrase-change-me
+      - RUST_LOG=info
