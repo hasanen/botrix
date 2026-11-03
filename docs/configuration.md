@@ -13,7 +13,6 @@ Botrix is configured with a single YAML file mounted at `/config/config.yaml` (p
 ```yaml
 matrix:
   homeserver: https://matrix.pikaviestin.fi
-  user_id: "@botrix:pikaviestin.fi"
 
   destinations:
     containers:
@@ -30,10 +29,10 @@ webhooks:
     msg_template: |
       Docker image update available!
 
-      Container: ${container}
-      Image: ${image}
-      Current: ${current_tag}
-      New: ${new_tag}
+      Container: ${name}
+      Image: ${image.name}
+      Current tag: ${image.tag.value}
+      New tag: ${result.tag}
 
   homeassistant:
     enabled: true
@@ -54,7 +53,8 @@ server:
 | Field | Required | Description |
 |---|---|---|
 | `homeserver` | Yes | HTTPS URL of your Matrix homeserver |
-| `user_id` | Yes | Full Matrix user ID of the bot account (`@name:server`) |
+
+> The Matrix account (user ID) is connected through the web UI using OAuth Device Authorization Grant — it is not configured here. See [Matrix setup](matrix-setup.md).
 
 ### `matrix.destinations`
 
@@ -88,15 +88,15 @@ A map of webhook identifiers to definitions. Each identifier becomes part of the
 | Variable | Required | Description |
 |---|---|---|
 | `BOTRIX_SESSION_SECRET` | Yes | Signs browser session cookies. Min 32 bytes, base64 or hex. |
-| `BOTRIX_CRYPTO_PASSPHRASE` | Recommended | Encrypts Matrix crypto state on disk. See note below. |
+| `BOTRIX_CRYPTO_PASSPHRASE` | Yes | Encrypts Matrix crypto state on disk. See note below. |
 | `BOTRIX_CONFIG` | No | Path to config file (default: `/config/config.yaml`) |
 | `BOTRIX_DATA_DIR` | No | Path to data directory (default: `/data`) |
-| `RUST_LOG` | No | Log filter, e.g. `info` or `botrix=debug` |
+| `RUST_LOG` | No | Log filter. Examples: `info`, `warn`, `botrix=debug`, `botrix=trace`. |
 
 ### Why two secrets?
 
 `BOTRIX_SESSION_SECRET` protects the web UI — it signs the session cookies that keep you logged into the admin interface.
 
-`BOTRIX_CRYPTO_PASSPHRASE` protects Matrix key material at rest — it encrypts the database that stores Megolm session keys and cross-signing keys. Without it, anyone who copies the `/data` volume can read that cryptographic material.
+`BOTRIX_CRYPTO_PASSPHRASE` protects Matrix key material at rest — it encrypts the database that stores Megolm session keys and cross-signing keys. Without it, the application will not start. Anyone who copies the `/data` volume without this passphrase cannot read any Matrix E2EE key material.
 
 **Use different values for each.** If both secrets are the same, compromising one compromises both.

@@ -33,7 +33,7 @@ msg_template: |
   Docker image update!
 
   Container: ${name}
-  New version: ${result.newTag}
+  New tag: ${result.tag}
 ```
 
 ### Supported syntax
@@ -53,7 +53,31 @@ A missing variable causes the webhook to return `400 Bad Request` with a message
 
 ### What's Up Docker (WUD)
 
-Configure WUD to send webhooks to Botrix:
+Configure WUD to send webhooks to Botrix using the [HTTP trigger](https://getwud.github.io/wud/docs/configuration/triggers/http/):
+
+```yaml
+# WUD configuration (environment variables)
+# WUD_TRIGGER_HTTP_BOTRIX_URL=https://your-botrix/api/v1/webhooks/notify/wud
+# WUD_TRIGGER_HTTP_BOTRIX_METHOD=POST
+# WUD_TRIGGER_HTTP_BOTRIX_AUTH_TYPE=BEARER
+# WUD_TRIGGER_HTTP_BOTRIX_AUTH_BEARER=<your-token>
+```
+
+WUD sends a POST request with this payload structure (abbreviated):
+
+```json
+{
+  "name": "homeassistant",
+  "watcher": "local",
+  "image": {
+    "name": "homeassistant/home-assistant",
+    "tag": { "value": "2024.6.4" }
+  },
+  "result": { "tag": "2024.6.5" }
+}
+```
+
+Botrix webhook configuration:
 
 ```yaml
 webhooks:
@@ -64,16 +88,16 @@ webhooks:
       Docker image update available!
 
       Container: ${name}
-      Image: ${image}
-      Current: ${result.oldTag}
-      New: ${result.newTag}
+      Image: ${image.name}
+      Current tag: ${image.tag.value}
+      New tag: ${result.tag}
 ```
 
 WUD webhook URL: `https://your-botrix/api/v1/webhooks/notify/wud`
 
 ### Home Assistant
 
-In Home Assistant, use the REST notification platform or an automation with `rest_command`:
+If Home Assistant is sending webhooks directly to Botrix (e.g. from a `rest_command` or `notify` call), the payload fields depend on what HA sends. A typical automation payload might look like:
 
 ```yaml
 webhooks:
@@ -87,6 +111,8 @@ webhooks:
 ```
 
 Webhook URL: `https://your-botrix/api/v1/webhooks/notify/homeassistant`
+
+> **Note:** If you are using WUD's [Home Assistant trigger](https://getwud.github.io/wud/docs/configuration/triggers/homeassistant/) to send from WUD → HA → Botrix, the WUD HA payload also includes top-level `title` and `message` fields, so this template works for that flow too.
 
 ### GitHub (via webhooks)
 

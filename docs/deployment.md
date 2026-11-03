@@ -35,6 +35,12 @@ podman run -d \
   ghcr.io/hasanen/botrix:latest
 ```
 
+> **Rootless Podman note:** `--restart unless-stopped` requires either rootful Podman or a systemd unit. For rootless Podman, generate a systemd service instead:
+> ```bash
+> podman generate systemd --name botrix --files --new
+> ```
+> Then enable and start it with `systemctl --user enable --now container-botrix`.
+
 Generate secret values with:
 ```bash
 openssl rand -base64 32
@@ -93,3 +99,43 @@ botrix.yourdomain.com {
 ## Environment variables
 
 See the [Configuration reference](configuration.md#environment-variables) for a full list.
+
+## Health check
+
+Botrix exposes a health check endpoint:
+
+```
+GET /health
+```
+
+Returns `200 OK` when the application is running. Use it in container orchestration or monitoring:
+
+```bash
+# Podman / Docker HEALTHCHECK in Containerfile
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+```
+
+## Backup and restore
+
+The entire state of a Botrix instance lives in `/data`. Back this directory up regularly.
+
+```bash
+# Backup
+tar -czf botrix-backup-$(date +%Y%m%d).tar.gz /opt/botrix/data
+
+# Restore (stop the container first)
+podman stop botrix
+tar -xzf botrix-backup-20260101.tar.gz -C /
+podman start botrix
+```
+
+**What is in `/data`:**
+
+| Path | Contents | Impact if lost |
+|---|---|---|
+| `botrix.db` | Admin account, sessions, webhook tokens, notification history | Must redo first-run setup, regenerate all tokens |
+| `matrix/state.db` | Matrix session state | Must reconnect Matrix account |
+| `matrix/crypto.db` | E2EE keys | Must re-enter recovery key to restore encryption state |
+
+Back up `/config/config.yaml` separately — it is not stored in `/data`.

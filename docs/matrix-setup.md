@@ -11,7 +11,7 @@ Botrix connects to Matrix using OAuth 2.0 Device Authorization Grant. Authentica
 ## Requirements
 
 - A Matrix account for the bot (separate from your personal account is recommended)
-- The account must be on a homeserver that supports Matrix Authentication Service (MAS)
+- The account must be on a homeserver that uses [Matrix Authentication Service (MAS)](https://matrix-org.github.io/matrix-authentication-service/) — plain password-based homeservers are not supported
 
 ## Connecting an account
 

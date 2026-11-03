@@ -9,7 +9,6 @@ theme: just-the-docs
 # No additional Jekyll excludes needed
 
 # Navigation order is set via front-matter nav_order in each page
-nav_sort: order
 
 # Footer
 footer_content: "MIT License &bull; <a href=\"https://github.com/hasanen/botrix\">GitHub</a>"

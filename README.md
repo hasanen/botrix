@@ -21,6 +21,7 @@ podman pull ghcr.io/hasanen/botrix:latest
 # Run with a config file and persistent data volume
 podman run -d \
   --name botrix \
+  --restart unless-stopped \
   -p 8080:8080 \
   -v /your/config:/config:ro \
   -v /your/data:/data \
