@@ -63,6 +63,40 @@ pub async fn post<B: Serialize, T: for<'de> Deserialize<'de>>(
         .map_err(|e| ApiError::Deserialize(e.to_string()))
 }
 
+/// Fetch a CSRF authenticity token, which also sets the CSRF cookie.
+pub async fn fetch_csrf() -> Result<String, ApiError> {
+    let resp: botrix_common::api::auth::CsrfResponse = get("/api/v1/auth/csrf").await?;
+    Ok(resp.token)
+}
+
+/// Perform a state-mutating `POST` with a freshly fetched CSRF token.
+///
+/// Fetches `/api/v1/auth/csrf` first (setting the cookie), then submits the
+/// request with the matching token in the `X-CSRF-Token` header.
+pub async fn post_csrf<B: Serialize, T: for<'de> Deserialize<'de>>(
+    path: &str,
+    body: &B,
+) -> Result<T, ApiError> {
+    let csrf = fetch_csrf().await?;
+    let response = Request::post(path)
+        .header("x-csrf-token", &csrf)
+        .json(body)
+        .map_err(|e| ApiError::Network(e.to_string()))?
+        .send()
+        .await?;
+
+    if !response.ok() {
+        let status = response.status();
+        let message = response.text().await.unwrap_or_default();
+        return Err(ApiError::Server { status, message });
+    }
+
+    response
+        .json::<T>()
+        .await
+        .map_err(|e| ApiError::Deserialize(e.to_string()))
+}
+
 /// Perform a `PUT` request with a JSON body and deserialize the JSON response.
 pub async fn put<B: Serialize, T: for<'de> Deserialize<'de>>(
     path: &str,

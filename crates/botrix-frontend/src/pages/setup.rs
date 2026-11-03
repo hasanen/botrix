@@ -1,17 +1,110 @@
 //! First-run setup page — creates the initial admin account.
 
 use leptos::prelude::*;
+use leptos::task::spawn_local;
+
+use botrix_common::api::auth::{SessionInfo, SetupRequest};
+
+use crate::api;
 
 /// Setup page component.
 #[component]
 pub fn SetupPage() -> impl IntoView {
+    let (username, set_username) = signal(String::new());
+    let (password, set_password) = signal(String::new());
+    let (confirm, set_confirm) = signal(String::new());
+    let (error, set_error) = signal(Option::<String>::None);
+    let (submitting, set_submitting) = signal(false);
+
+    let on_submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        set_error.set(None);
+
+        if password.get() != confirm.get() {
+            set_error.set(Some("Passwords do not match.".to_owned()));
+            return;
+        }
+        if password.get().len() < 8 {
+            set_error.set(Some("Password must be at least 8 characters.".to_owned()));
+            return;
+        }
+
+        set_submitting.set(true);
+        let req = SetupRequest {
+            username: username.get(),
+            password: password.get(),
+        };
+
+        spawn_local(async move {
+            match api::post_csrf::<_, SessionInfo>("/api/v1/setup", &req).await {
+                Ok(_) => {
+                    let _ = window().location().set_href("/login");
+                }
+                Err(api::ApiError::Server { status: 409, .. }) => {
+                    set_error.set(Some(
+                        "An admin account already exists. Redirecting to login.".to_owned(),
+                    ));
+                    let _ = window().location().set_href("/login");
+                }
+                Err(e) => {
+                    set_error.set(Some(format!("Setup failed: {e}")));
+                    set_submitting.set(false);
+                }
+            }
+        });
+    };
+
     view! {
         <main class="min-h-screen flex items-center justify-center bg-gray-50">
             <div class="max-w-sm w-full p-6 bg-white rounded-lg shadow">
-                <h1 class="text-xl font-semibold mb-4">"Welcome to Botrix"</h1>
+                <h1 class="text-xl font-semibold mb-2">"Welcome to Botrix"</h1>
                 <p class="text-sm text-gray-600 mb-6">"Create your admin account to get started."</p>
-                // TODO: implement in Phase 3
-                <p class="text-xs text-gray-400">"Setup form — Phase 3"</p>
+
+                {move || error.get().map(|msg| view! {
+                    <div class="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+                        {msg}
+                    </div>
+                })}
+
+                <form on:submit=on_submit class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">"Username"</label>
+                        <input
+                            type="text"
+                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            prop:value=move || username.get()
+                            on:input=move |ev| set_username.set(event_target_value(&ev))
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">"Password"</label>
+                        <input
+                            type="password"
+                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            prop:value=move || password.get()
+                            on:input=move |ev| set_password.set(event_target_value(&ev))
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">"Confirm password"</label>
+                        <input
+                            type="password"
+                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            prop:value=move || confirm.get()
+                            on:input=move |ev| set_confirm.set(event_target_value(&ev))
+                            required
+                        />
+                    </div>
+                    <button
+                        type="submit"
+                        disabled=move || submitting.get()
+                        class="w-full bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {move || if submitting.get() { "Creating..." } else { "Create account" }}
+                    </button>
+                </form>
             </div>
         </main>
     }

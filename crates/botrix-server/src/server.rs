@@ -69,9 +69,23 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         std::sync::Arc::new(crate::matrix::StubSender);
     crate::queue::worker::spawn(pool.clone(), sender);
 
-    // Production cookies are Secure; operators terminate TLS upstream.
-    let secure_cookies = true;
-    let router = build_app(pool, config.clone(), &session_secret, secure_cookies).await?;
+    // For local HTTP testing, allow disabling Secure cookies via env so the
+    // browser accepts them over plain http://localhost. Defaults to secure.
+    let secure_cookies = std::env::var("BOTRIX_INSECURE_COOKIES")
+        .map(|v| v != "1" && v.to_lowercase() != "true")
+        .unwrap_or(true);
+
+    let mut router = build_app(pool, config.clone(), &session_secret, secure_cookies).await?;
+
+    // Serve the compiled frontend from BOTRIX_FRONTEND_DIR if set, with an
+    // SPA fallback to index.html for client-side routing.
+    if let Ok(dir) = std::env::var("BOTRIX_FRONTEND_DIR") {
+        use tower_http::services::{ServeDir, ServeFile};
+        let index = format!("{dir}/index.html");
+        let serve = ServeDir::new(&dir).fallback(ServeFile::new(index));
+        router = router.fallback_service(serve);
+        tracing::info!(dir, "serving frontend assets");
+    }
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     tracing::info!(%addr, "starting Botrix server");
