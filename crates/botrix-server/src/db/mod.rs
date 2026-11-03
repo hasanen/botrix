@@ -7,6 +7,7 @@ pub mod auth;
 pub mod maintenance;
 pub mod models;
 pub mod settings;
+pub mod webhooks;
 
 use thiserror::Error;
 

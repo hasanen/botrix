@@ -127,7 +127,21 @@ pub async fn build_app(
 
 /// Assemble the API router with the given application state.
 fn build_router(state: AppState) -> Router {
-    use crate::api::{auth, settings};
+    use crate::api::{auth, settings, webhooks as api_webhooks};
+    use crate::webhooks::handler as webhook_handler;
+    use axum::extract::DefaultBodyLimit;
+
+    let max_body = state.config.server.max_body_bytes;
+
+    // The public, token-authenticated inbound webhook endpoint. Its body limit
+    // is raised to at least the configured maximum so the handler's explicit
+    // 413 check governs rather than Axum's 2 MiB default.
+    let notify = Router::new()
+        .route(
+            "/api/v1/webhooks/notify/{identifier}",
+            post(webhook_handler::notify),
+        )
+        .layer(DefaultBodyLimit::max(max_body.max(2 * 1024 * 1024)));
 
     Router::new()
         .route("/health", get(|| async { axum::http::StatusCode::OK }))
@@ -143,6 +157,13 @@ fn build_router(state: AppState) -> Router {
             get(settings::get_settings).put(settings::update_settings),
         )
         .route("/api/v1/settings/password", post(settings::change_password))
+        // Webhook management (authenticated)
+        .route("/api/v1/webhooks", get(api_webhooks::list))
+        .route(
+            "/api/v1/webhooks/{id}/token",
+            post(api_webhooks::generate_token).delete(api_webhooks::revoke_token),
+        )
+        .merge(notify)
         .with_state(state)
 }
 
