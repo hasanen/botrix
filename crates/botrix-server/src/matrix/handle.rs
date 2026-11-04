@@ -31,6 +31,8 @@ pub struct MatrixHandle {
     client: Arc<RwLock<Option<Client>>>,
     /// The sender the worker delivers through; swapped to a live one on login.
     sender: Arc<SwappableSender>,
+    /// Handle to the background sync task, aborted on disconnect.
+    sync_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// Logical destination name → room ID, from config.
     destinations: HashMap<String, String>,
 }
@@ -41,16 +43,20 @@ impl MatrixHandle {
         Self {
             client: Arc::new(RwLock::new(None)),
             sender: Arc::new(SwappableSender::disconnected()),
+            sync_task: Arc::new(RwLock::new(None)),
             destinations,
         }
     }
 
-    /// Create a handle already holding a restored, connected client.
+    /// Create a handle already holding a restored, connected client, and start
+    /// its background sync loop.
     pub fn connected(client: Client, destinations: HashMap<String, String>) -> Self {
         let sender = SwappableSender::live(MatrixSender::new(client.clone(), destinations.clone()));
+        let sync_task = super::worker::spawn_sync(client.clone());
         Self {
             client: Arc::new(RwLock::new(Some(client))),
             sender: Arc::new(sender),
+            sync_task: Arc::new(RwLock::new(Some(sync_task))),
             destinations,
         }
     }
@@ -75,17 +81,25 @@ impl MatrixHandle {
         *self.client.write().await = Some(client);
     }
 
-    /// Mark the handle connected: keep `client` and route delivery through it.
+    /// Mark the handle connected: route delivery through `client` and start its
+    /// background sync loop (so E2EE keys and membership stay current).
     pub async fn activate(&self, client: Client) {
         self.sender
             .set_live(MatrixSender::new(client.clone(), self.destinations.clone()))
             .await;
+        let task = super::worker::spawn_sync(client.clone());
+        if let Some(old) = self.sync_task.write().await.replace(task) {
+            old.abort();
+        }
         *self.client.write().await = Some(client);
     }
 
-    /// Drop the client and stop delivering (used on disconnect).
+    /// Drop the client, stop the sync loop, and stop delivering (on disconnect).
     pub async fn deactivate(&self) {
         self.sender.clear().await;
+        if let Some(task) = self.sync_task.write().await.take() {
+            task.abort();
+        }
         *self.client.write().await = None;
     }
 

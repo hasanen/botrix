@@ -7,6 +7,9 @@
 //! library (argument parsing and process exit handling only).
 
 #![deny(missing_docs)]
+// matrix-sdk's `Client::sync` builds deeply nested async futures; the default
+// trait-solver recursion limit overflows while proving them `Send`.
+#![recursion_limit = "256"]
 // Phased scaffolding: some types, error variants, and helpers are defined
 // ahead of the phase that wires them in (see docs/implementation-plan.md §17).
 // This allow is removed as modules are connected in later phases.
