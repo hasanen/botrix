@@ -24,7 +24,7 @@ pub mod status {
 }
 
 /// A snapshot of the `matrix_state` singleton row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MatrixState {
     /// Matrix user ID (`@bot:server`), if a session exists.
     pub user_id: Option<String>,
@@ -90,7 +90,7 @@ pub fn set_status(pool: &Pool, status: &str) -> Result<(), DbError> {
 }
 
 /// Fields required to persist a freshly established or restored session.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionRecord {
     /// Matrix user ID.
     pub user_id: String,
@@ -105,6 +105,16 @@ pub struct SessionRecord {
     /// Encrypted refresh token, if the server issued one.
     pub refresh_token: Option<String>,
 }
+
+super::debug_redacting!(SessionRecord {
+    user_id, homeserver, device_id, oauth_client_id;
+    secret: access_token, refresh_token
+});
+super::debug_redacting!(MatrixState {
+    user_id, homeserver, device_id, oauth_client_id, connected_at,
+    last_token_refresh, status;
+    secret: access_token, refresh_token
+});
 
 /// Persist a connected session: identity, encrypted tokens, `connected_at`,
 /// and status `connected`.

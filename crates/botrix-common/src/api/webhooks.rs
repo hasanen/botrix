@@ -20,10 +20,18 @@ pub struct WebhookInfo {
 /// Response for `POST /api/v1/webhooks/:id/token`.
 ///
 /// The plaintext token is returned exactly once and must be copied immediately.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TokenGenerateResponse {
     /// Plaintext token (shown once, never stored).
     pub token: String,
+}
+
+impl std::fmt::Debug for TokenGenerateResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenGenerateResponse")
+            .field("token", &"[redacted]")
+            .finish()
+    }
 }
 
 /// A single notification history entry.

@@ -88,8 +88,16 @@ pub struct TestMessageRequest {
 }
 
 /// Request body for `POST /api/v1/matrix/recovery-key`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RecoveryKeyRequest {
     /// The Matrix key backup recovery key.
     pub recovery_key: String,
+}
+
+impl std::fmt::Debug for RecoveryKeyRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecoveryKeyRequest")
+            .field("recovery_key", &"[redacted]")
+            .finish()
+    }
 }

@@ -6,6 +6,22 @@
 //! callers in async contexts should keep calls short (they are small, indexed
 //! queries on a local file).
 
+/// Implement `Debug` for a row type, printing the listed fields normally and
+/// the `secret` fields as `[redacted]` so credentials never reach logs.
+macro_rules! debug_redacting {
+    ($ty:ty { $($shown:ident),* $(,)? ; secret: $($secret:ident),+ $(,)? }) => {
+        impl std::fmt::Debug for $ty {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.debug_struct(stringify!($ty))
+                    $(.field(stringify!($shown), &self.$shown))*
+                    $(.field(stringify!($secret), &"[redacted]"))+
+                    .finish()
+            }
+        }
+    };
+}
+pub(crate) use debug_redacting;
+
 pub mod auth;
 pub mod history;
 pub mod logs;
@@ -124,4 +140,109 @@ pub fn test_pool() -> Pool {
     let pool = Pool::builder().max_size(1).build(manager).expect("pool");
     migrate::run(&pool).expect("migrate");
     pool
+}
+
+#[cfg(test)]
+mod debug_redaction_tests {
+    //! Credential-bearing row types must not reveal them through `{:?}`.
+
+    use super::matrix::{MatrixState, SessionRecord};
+    use super::models;
+
+    fn assert_hidden(debug: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(!debug.contains(secret), "leaked '{secret}': {debug}");
+        }
+        assert!(debug.contains("[redacted]"), "no marker: {debug}");
+    }
+
+    #[test]
+    fn session_record_hides_tokens_but_keeps_identity() {
+        let debug = format!(
+            "{:?}",
+            SessionRecord {
+                user_id: "@bot:example.com".into(),
+                homeserver: "https://matrix.example.com".into(),
+                device_id: "DEV".into(),
+                oauth_client_id: None,
+                access_token: "enc-access".into(),
+                refresh_token: Some("enc-refresh".into()),
+            }
+        );
+        assert!(debug.contains("@bot:example.com"));
+        assert_hidden(&debug, &["enc-access", "enc-refresh"]);
+    }
+
+    #[test]
+    fn matrix_state_hides_tokens() {
+        let debug = format!(
+            "{:?}",
+            MatrixState {
+                user_id: Some("@bot:example.com".into()),
+                homeserver: None,
+                access_token: Some("enc-access".into()),
+                refresh_token: Some("enc-refresh".into()),
+                device_id: None,
+                oauth_client_id: None,
+                connected_at: None,
+                last_token_refresh: None,
+                status: "connected".into(),
+            }
+        );
+        assert!(debug.contains("connected"));
+        assert_hidden(&debug, &["enc-access", "enc-refresh"]);
+    }
+
+    #[test]
+    fn admin_row_hides_the_password_hash() {
+        let debug = format!(
+            "{:?}",
+            models::Admin {
+                id: 1,
+                username: "alice".into(),
+                password_hash: "$argon2id$v=19$secret-hash".into(),
+                created_at: 0,
+                updated_at: 0,
+            }
+        );
+        assert!(debug.contains("alice"));
+        assert_hidden(&debug, &["$argon2id$v=19$secret-hash"]);
+    }
+
+    #[test]
+    fn webhook_token_row_hides_the_token_hash() {
+        let debug = format!(
+            "{:?}",
+            models::WebhookToken {
+                id: 1,
+                webhook_id: "wud".into(),
+                token_hash: Some("deadbeefhash".into()),
+                enabled: true,
+                created_at: None,
+                updated_at: 0,
+            }
+        );
+        assert!(debug.contains("wud"));
+        assert_hidden(&debug, &["deadbeefhash"]);
+    }
+
+    #[test]
+    fn models_matrix_state_hides_tokens() {
+        let debug = format!(
+            "{:?}",
+            models::MatrixState {
+                id: 1,
+                user_id: None,
+                homeserver: None,
+                access_token: Some("enc-access".into()),
+                refresh_token: Some("enc-refresh".into()),
+                device_id: None,
+                oauth_client_id: None,
+                connected_at: None,
+                last_token_refresh: None,
+                status: "connected".into(),
+            }
+        );
+        assert_hidden(&debug, &["enc-access", "enc-refresh"]);
+    }
 }

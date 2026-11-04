@@ -21,12 +21,21 @@ pub struct UpdateSettingsRequest {
 }
 
 /// Request body for `POST /api/v1/settings/password`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChangePasswordRequest {
     /// Current password for verification.
     pub current_password: String,
     /// New password to set.
     pub new_password: String,
+}
+
+impl std::fmt::Debug for ChangePasswordRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChangePasswordRequest")
+            .field("current_password", &"[redacted]")
+            .field("new_password", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Response body for `GET /api/v1/settings/info`.

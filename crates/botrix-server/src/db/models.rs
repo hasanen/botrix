@@ -1,7 +1,6 @@
 //! Row types that document the shape of each database table.
 
 /// A row from the `admins` table.
-#[derive(Debug)]
 pub struct Admin {
     /// Primary key.
     pub id: i64,
@@ -16,7 +15,6 @@ pub struct Admin {
 }
 
 /// A row from the `matrix_state` table (singleton, `id = 1`).
-#[derive(Debug)]
 pub struct MatrixState {
     /// Primary key (always 1).
     pub id: i64,
@@ -41,7 +39,6 @@ pub struct MatrixState {
 }
 
 /// A row from the `webhook_tokens` table.
-#[derive(Debug)]
 pub struct WebhookToken {
     /// Primary key.
     pub id: i64,
@@ -111,3 +108,11 @@ pub struct SessionSettings {
     /// Unix timestamp of last update.
     pub updated_at: i64,
 }
+
+super::debug_redacting!(Admin { id, username, created_at, updated_at; secret: password_hash });
+super::debug_redacting!(MatrixState {
+    id, user_id, homeserver, device_id, oauth_client_id, connected_at,
+    last_token_refresh, status;
+    secret: access_token, refresh_token
+});
+super::debug_redacting!(WebhookToken { id, webhook_id, enabled, created_at, updated_at; secret: token_hash });
