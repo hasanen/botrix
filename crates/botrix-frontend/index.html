@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Botrix</title>
-    <link data-trunk rel="rust" data-bin="botrix-frontend" data-wasm-opt="z" />
+    <!-- data-wasm-opt="0" skips wasm-opt. Measured: it saved only ~4% raw and
+         ~0% gzipped, and Trunk downloads a ~100 MB binary for it (the default
+         in release builds), which made image builds flaky. Use "z" to re-enable. -->
+    <link data-trunk rel="rust" data-bin="botrix-frontend" data-wasm-opt="0" />
     <link data-trunk rel="copy-file" href="style/main.css" />
     <link rel="stylesheet" href="/main.css" />
   </head>

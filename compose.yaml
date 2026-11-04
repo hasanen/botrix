@@ -1,3 +1,5 @@
+# Local development / testing only. Do not use these placeholder secrets in
+# production: generate real ones (e.g. `openssl rand -base64 48`).
 services:
   botrix:
     image: botrix:dev
@@ -10,6 +12,17 @@ services:
       - ./dev-data:/data
       - ./dev-config:/config:ro
     environment:
-      - BOTRIX_SESSION_SECRET=dev-secret-change-me
-      - BOTRIX_CRYPTO_PASSPHRASE=dev-passphrase-change-me
+      # BOTRIX_SESSION_SECRET must be at least 32 bytes.
+      - BOTRIX_SESSION_SECRET=dev-only-session-secret-change-me-0123456789
+      - BOTRIX_CRYPTO_PASSPHRASE=dev-only-crypto-passphrase-change-me
+      # Plain http://localhost has no TLS, so allow non-Secure cookies. Remove
+      # this behind an HTTPS reverse proxy.
+      - BOTRIX_INSECURE_COOKIES=1
       - RUST_LOG=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "botrix", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
