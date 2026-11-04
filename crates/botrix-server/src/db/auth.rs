@@ -93,8 +93,33 @@ pub fn verify_login(pool: &Pool, username: &str, password: &str) -> Result<Strin
 
     match row {
         Some((db_username, hash)) if verify_password(password, &hash)? => Ok(db_username),
-        _ => Err(AuthError::InvalidCredentials),
+        Some(_) => Err(AuthError::InvalidCredentials),
+        None => {
+            // Unknown user: spend the same time hashing against a throwaway
+            // hash, so response time does not reveal which usernames exist.
+            let _ = verify_password(password, dummy_hash());
+            Err(AuthError::InvalidCredentials)
+        }
     }
+}
+
+/// A valid Argon2 hash (of a random, discarded password) generated once per
+/// process with the same parameters as real hashes, used to equalize timing.
+fn dummy_hash() -> &'static str {
+    static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DUMMY.get_or_init(|| {
+        // Falling back to an empty string only skips the timing equalization
+        // (verification of an unparsable hash fails fast); it never grants access.
+        hash_password(&random_throwaway_secret()).unwrap_or_default()
+    })
+}
+
+/// A random throwaway value for [`dummy_hash`]; never stored or compared.
+fn random_throwaway_secret() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Change an admin's password after verifying the current one.
@@ -148,6 +173,50 @@ mod tests {
         let hash = hash_password("s3cr3t").unwrap();
         assert!(!hash.contains("s3cr3t"));
         assert!(hash.starts_with("$argon2id$"));
+    }
+
+    #[test]
+    fn unknown_user_costs_about_as_much_as_a_wrong_password() {
+        // Arrange: if an unknown username returned without hashing, response
+        // time would reveal which usernames exist.
+        let pool = test_pool();
+        create_admin(&pool, "alice", "hunter2pass").unwrap();
+        let time_min = |user: &str| {
+            (0..3)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    let _ = verify_login(&pool, user, "wrong-password");
+                    start.elapsed()
+                })
+                .min()
+                .unwrap()
+        };
+        let _ = verify_login(&pool, "alice", "warm-up");
+
+        // Act
+        let known_user = time_min("alice");
+        let unknown_user = time_min("nobody");
+
+        // Assert: same order of magnitude (generous bound to avoid flakiness;
+        // the unfixed code is several hundred times faster).
+        assert!(
+            unknown_user * 2 >= known_user,
+            "unknown user took {unknown_user:?} vs {known_user:?} for a known user"
+        );
+    }
+
+    #[test]
+    fn unknown_user_and_wrong_password_return_the_same_error() {
+        let pool = test_pool();
+        create_admin(&pool, "alice", "hunter2pass").unwrap();
+        assert!(matches!(
+            verify_login(&pool, "nobody", "x"),
+            Err(AuthError::InvalidCredentials)
+        ));
+        assert!(matches!(
+            verify_login(&pool, "alice", "x"),
+            Err(AuthError::InvalidCredentials)
+        ));
     }
 
     #[test]
