@@ -64,6 +64,12 @@ services:
       BOTRIX_SESSION_SECRET: "${BOTRIX_SESSION_SECRET}"
       BOTRIX_CRYPTO_PASSPHRASE: "${BOTRIX_CRYPTO_PASSPHRASE}"
       RUST_LOG: info
+    healthcheck:
+      test: ["CMD", "botrix", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 ```
 
 Store the secret values in a `.env` file (not committed to version control).
@@ -87,7 +93,7 @@ The `/data` volume is preserved across updates.
 
 ## Reverse proxy
 
-Botrix does not handle TLS. Place it behind a reverse proxy (Caddy, nginx, Traefik) for HTTPS.
+Botrix does not handle TLS and has **no built-in rate limiting**. Place it behind a reverse proxy (Caddy, nginx, Traefik) for HTTPS, and add rate limiting there, in particular for `/api/v1/auth/login` and `/api/v1/webhooks/notify/`, which are reachable without a session.
 
 Example Caddy block:
 ```
@@ -108,13 +114,40 @@ Botrix exposes a health check endpoint:
 GET /health
 ```
 
-Returns `200 OK` when the application is running. Use it in container orchestration or monitoring:
+It returns `200 OK` while the application is running. The image already defines a `HEALTHCHECK` that runs `botrix healthcheck`, a built-in probe of the local `/health` endpoint, so there is nothing to configure with Docker. The image contains no `curl`; use the built-in command if you define your own check:
 
 ```bash
-# Podman / Docker HEALTHCHECK in Containerfile
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+podman exec botrix botrix healthcheck   # exit code 0 = healthy
 ```
+
+For a quick look at the queue without the web UI:
+
+```bash
+podman exec botrix botrix status   # Matrix status, queued and failed notifications
+```
+
+Podman's default image format ignores `HEALTHCHECK`; the compose `healthcheck:` block above (or `--health-cmd 'botrix healthcheck'`) covers that.
+
+## Hardening
+
+Botrix only writes to `/data`, so it runs with a locked-down profile:
+
+```bash
+podman run -d --name botrix \
+  --security-opt no-new-privileges --cap-drop ALL \
+  --read-only --tmpfs /tmp \
+  -p 8080:8080 \
+  -v /opt/botrix/config:/config:ro \
+  -v /opt/botrix/data:/data \
+  -e BOTRIX_SESSION_SECRET=... -e BOTRIX_CRYPTO_PASSPHRASE=... \
+  ghcr.io/hasanen/botrix:latest
+```
+
+The container runs as UID 1000. Make sure that user can write to the `/data` volume.
+
+## Logs
+
+The **Logs** page in the web UI shows operational events (logins, token changes, rejected webhook payloads, delivery failures, Matrix connection events). Events are kept for 30 days, capped at 10,000 entries, and never contain passwords, tokens or message bodies. Unauthenticated requests, such as webhook calls with a bad token, appear only in the container log (`podman logs botrix`), not in the UI.
 
 ## Backup and restore
 

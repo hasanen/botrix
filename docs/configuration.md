@@ -87,10 +87,12 @@ A map of webhook identifiers to definitions. Each identifier becomes part of the
 
 | Variable | Required | Description |
 |---|---|---|
-| `BOTRIX_SESSION_SECRET` | Yes | Signs browser session cookies. Min 32 bytes, base64 or hex. |
+| `BOTRIX_SESSION_SECRET` | Yes | Signs browser session cookies. At least 32 characters; Botrix refuses to start otherwise. |
 | `BOTRIX_CRYPTO_PASSPHRASE` | Yes | Encrypts Matrix crypto state on disk. See note below. |
 | `BOTRIX_CONFIG` | No | Path to config file (default: `/config/config.yaml`) |
 | `BOTRIX_DATA_DIR` | No | Path to data directory (default: `/data`) |
+| `BOTRIX_INSECURE_COOKIES` | No | Set to `1` to send session cookies without the `Secure` flag, for trying Botrix over plain HTTP. Leave unset behind HTTPS. |
+| `BOTRIX_FRONTEND_DIR` | No | Serve the web UI from this directory instead of the copy built into the binary. For development. |
 | `RUST_LOG` | No | Log filter. Examples: `info`, `warn`, `botrix=debug`, `botrix=trace`. |
 
 ### Why two secrets?

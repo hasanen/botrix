@@ -12,6 +12,10 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 - Sends encrypted messages to Matrix rooms (E2EE)
 - Provides a web UI for managing connections, tokens, and notification history
 
+## Project status
+
+Botrix is under active development. Webhook intake, templating, the delivery queue with retries, the admin web UI, and the container image all work. **Connecting a Matrix account (OAuth device login) and E2EE recovery-key setup are not implemented yet**, so notifications are queued and retried but cannot be delivered to Matrix until that lands.
+
 ## Quick start
 
 ```bash
@@ -30,7 +34,11 @@ podman run -d \
   ghcr.io/hasanen/botrix:latest
 ```
 
-Open `http://localhost:8080` to complete the setup and connect your Matrix account.
+Open `http://localhost:8080` to create the admin account.
+
+- Both secrets must be set, `BOTRIX_SESSION_SECRET` must be at least 32 characters, and the two values should differ. `openssl rand -base64 32` makes a good one.
+- Browsers only accept the session cookie over HTTPS (or `localhost`). For a quick trial over plain HTTP on another host, add `-e BOTRIX_INSECURE_COOKIES=1`; otherwise put Botrix behind an HTTPS reverse proxy.
+- Botrix has no built-in rate limiting. Run it behind a reverse proxy that provides it (see the [deployment guide](https://hasanen.github.io/botrix/deployment)).
 
 ## Documentation
 

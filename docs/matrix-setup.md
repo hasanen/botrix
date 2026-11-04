@@ -6,6 +6,8 @@ nav_order: 4
 
 # Matrix setup
 
+> **Status:** the account-connection flow and the encryption recovery-key step below describe the intended behavior. They are **not implemented yet**: the **Connect** and **Recovery key** actions in the UI currently report that they are unavailable, and notifications stay queued. Destinations, invitations, test messages and disconnecting are implemented.
+
 Botrix connects to Matrix using OAuth 2.0 Device Authorization Grant. Authentication is done through the web UI — you never need to put passwords or tokens in configuration files.
 
 ## Requirements
