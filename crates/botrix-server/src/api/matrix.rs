@@ -176,11 +176,14 @@ pub async fn connect(
     // Build a fresh client and keep it in the shared handle: the SDK stores
     // PKCE/CSRF state in it, so the callback must use this same instance.
     let homeserver = state.config.matrix.homeserver.clone();
-    let client =
-        client::build_client(&state.data_dir, &homeserver, &state.crypto_passphrase).await?;
+    let client = client::build_client(&state.data_dir, &homeserver, &state.crypto_passphrase)
+        .await
+        .map_err(|e| connect_error(&state, "building the Matrix client", e))?;
     state.matrix.set_client(client.clone()).await;
 
-    let url = client::begin_login(&client, &redirect, &public_base).await?;
+    let url = client::begin_login(&client, &redirect, &public_base)
+        .await
+        .map_err(|e| connect_error(&state, "starting the OAuth login", e))?;
     db_matrix::set_status(&state.pool, db_matrix::status::CONNECTING)?;
     record(
         &state.pool,
@@ -193,6 +196,38 @@ pub async fn connect(
     Ok(Json(ConnectResponse {
         authorization_url: url,
     }))
+}
+
+/// Log a connect-flow failure and map it to a 502 with a readable message.
+///
+/// Connect failures are almost always configuration or homeserver problems
+/// the operator needs to see (wrong homeserver URL, a server without MAS, a
+/// redirect URI the server rejects), so surface the cause rather than a bare
+/// 500. Returns [`ApiError::Upstream`].
+fn connect_error(state: &AppState, during: &str, err: crate::matrix::MatrixError) -> ApiError {
+    tracing::error!(error = %err, during, "Matrix connect failed");
+    record(
+        &state.pool,
+        LogLevel::Error,
+        Component::Matrix,
+        "connect failed",
+        Some(&format!("while {during}: {err}")),
+    );
+
+    // Homeservers running MAS reject dynamic client registration when the
+    // redirect/client URL is not HTTPS (a plain http://localhost will fail).
+    // Point the operator at the actual fix rather than the raw OAuth error.
+    let text = err.to_string();
+    let message = if text.contains("invalid_redirect_uri") || text.contains("invalid client_uri") {
+        format!(
+            "{err}. The homeserver rejected Botrix's callback URL. Set server.public_url \
+             (or BOTRIX_PUBLIC_URL) to the HTTPS URL where Botrix is reachable; most \
+             homeservers refuse plain http:// or localhost redirect URLs."
+        )
+    } else {
+        format!("Matrix connect failed while {during}: {err}")
+    };
+    ApiError::Upstream(message)
 }
 
 /// Query parameters on the OAuth redirect callback.

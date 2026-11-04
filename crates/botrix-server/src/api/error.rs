@@ -24,6 +24,10 @@ pub enum ApiError {
     /// An unexpected internal error occurred.
     #[error("internal server error")]
     Internal,
+    /// A dependency Botrix calls out to (e.g. the Matrix homeserver) failed.
+    /// The message is operator-facing and safe to show.
+    #[error("{0}")]
+    Upstream(String),
 }
 
 /// JSON body returned for errors.
@@ -40,6 +44,7 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Upstream(_) => StatusCode::BAD_GATEWAY,
         };
         let body = ErrorBody {
             error: self.to_string(),
