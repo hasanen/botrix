@@ -24,6 +24,7 @@ async fn main() {
         Commands::Serve(args) => cli::serve(args).await,
         Commands::Config(args) => cli::config_cmd(args).await,
         Commands::Status(args) => cli::status(args),
+        Commands::Healthcheck(args) => cli::healthcheck(args),
     };
 
     if let Err(err) = result {

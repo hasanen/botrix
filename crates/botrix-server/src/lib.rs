@@ -17,6 +17,7 @@ pub mod assets;
 pub mod cli;
 pub mod config;
 pub mod db;
+pub mod health;
 pub mod matrix;
 pub mod queue;
 pub mod server;

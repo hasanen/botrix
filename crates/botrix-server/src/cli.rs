@@ -15,6 +15,9 @@ pub enum CliError {
     /// The application database could not be read.
     #[error("database error: {0}")]
     Database(#[from] crate::db::DbError),
+    /// The health probe failed.
+    #[error("{0}")]
+    Health(#[from] crate::health::HealthError),
 }
 
 /// Botrix — Matrix notification gateway.
@@ -35,7 +38,22 @@ pub enum Commands {
     Config(ConfigArgs),
     /// Report current Matrix connection and delivery queue status.
     Status(StatusArgs),
+    /// Probe the local server's `/health` endpoint (for container health checks).
+    Healthcheck(HealthcheckArgs),
 }
+
+/// Arguments for the `healthcheck` subcommand.
+#[derive(Debug, Parser)]
+pub struct HealthcheckArgs {
+    /// Path to the configuration file (used to find the server port).
+    ///
+    /// Defaults to the value of `BOTRIX_CONFIG`, or `/config/config.yaml`.
+    #[arg(long, env = "BOTRIX_CONFIG", default_value = "/config/config.yaml")]
+    pub config: String,
+}
+
+/// How long each step of the health probe may take.
+const HEALTHCHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Arguments for the `status` subcommand.
 #[derive(Debug, Parser)]
@@ -99,6 +117,17 @@ pub fn status(args: StatusArgs) -> Result<(), CliError> {
     let pool = crate::db::open_read_only(&db_path)?;
     let report = crate::status::StatusReport::load(&pool)?;
     println!("{report}");
+    Ok(())
+}
+
+/// Dispatch for `botrix healthcheck`.
+///
+/// Probes the loopback interface on the port from the configuration, since the
+/// check runs inside the same container as the server.
+pub fn healthcheck(args: HealthcheckArgs) -> Result<(), CliError> {
+    let config = crate::config::load(&args.config)?;
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], config.server.port));
+    crate::health::check(addr, HEALTHCHECK_TIMEOUT)?;
     Ok(())
 }
 
