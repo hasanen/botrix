@@ -77,3 +77,32 @@ fn crash_recovery_runs_on_init() {
 
     cleanup(&path);
 }
+
+#[test]
+fn every_pooled_connection_has_wal_busy_timeout_and_foreign_keys() {
+    // Arrange
+    let path = temp_db_path("pragmas");
+    let pool = db::init(path.to_str().unwrap()).expect("init");
+
+    // Act: hold several connections at once so the pool opens distinct ones.
+    let conns: Vec<_> = (0..4).map(|_| pool.get().expect("conn")).collect();
+
+    // Assert
+    for conn in &conns {
+        let journal: String = conn
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
+        let busy: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+            .unwrap();
+        let fk: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(journal, "wal");
+        assert_eq!(busy, 5000);
+        assert_eq!(fk, 1);
+    }
+    drop(conns);
+    drop(pool);
+    cleanup(&path);
+}

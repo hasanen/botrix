@@ -54,13 +54,19 @@ pub fn init(db_path: &str) -> Result<Pool, DbError> {
         std::fs::create_dir_all(parent).ok();
     }
 
+    // Switch to WAL once, on a single connection, *before* the pool exists.
+    // The mode is stored in the database file, so pooled connections inherit
+    // it. Doing this per pooled connection makes them race on a fresh
+    // database, and SQLite does not always apply the busy timeout to a
+    // concurrent WAL switch ("database is locked").
+    {
+        let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;")?;
+    }
+
     let manager = SqliteConnectionManager::file(db_path).with_init(|c| {
-        // WAL for better concurrency; enforce foreign keys.
-        c.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
-        )
+        // Per-connection settings (not persisted in the file).
+        c.execute_batch("PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;")
     });
     let pool = Pool::new(manager)?;
 
