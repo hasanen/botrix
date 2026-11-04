@@ -11,7 +11,7 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "warn"
 # Fail on unmaintained crates we depend on directly. Unmaintained crates that
 # only arrive transitively (currently paste, unsafe-libyaml, proc-macro-error2,
-# bitmaps, anymap2) cannot be fixed from this repository; they are tracked in
+# anymap2, derivative) cannot be fixed from this repository; they are tracked in
 # the implementation plan and go away with upstream upgrades. Vulnerabilities
 # are always denied, at any depth.
 unmaintained = "workspace"

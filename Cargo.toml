@@ -12,6 +12,8 @@ edition = "2021"
 license = "MIT"
 authors = ["Botrix Contributors"]
 repository = "https://github.com/hasanen/botrix"
+# Botrix ships as a container image, not as crates on crates.io.
+publish = false
 
 [workspace.dependencies]
 # Shared
@@ -23,14 +25,16 @@ thiserror = "2"
 axum = { version = "0.8", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
 serde_yaml = "0.9"
-# App DB uses rusqlite (same libsqlite3-sys 0.38 as matrix-sdk-sqlite, so a
-# single native sqlite3 library is linked — avoids the plan §19.5 conflict).
-rusqlite = { version = "0.37", features = ["bundled"] }
+# App DB uses rusqlite, which must resolve to the same libsqlite3-sys as
+# matrix-sdk-sqlite so a single native sqlite3 library is linked (plan §19.5).
+# rusqlite 0.40 / r2d2_sqlite 0.35 -> libsqlite3-sys 0.38, matching matrix-sdk 0.19.
+rusqlite = { version = "0.40", features = ["bundled"] }
 r2d2 = "0.8"
-r2d2_sqlite = "0.31"
-# rusqlite 0.37 -> libsqlite3-sys 0.35, matching matrix-sdk-sqlite so a single
-# native sqlite3 is linked.
-matrix-sdk = { version = "0.14", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "rustls-tls"] }
+r2d2_sqlite = "0.35"
+# matrix-sdk 0.19 fixes the matrix-sdk-base / matrix-sdk-crypto advisories
+# (RUSTSEC-2025-0135, -2026-0159, -2026-0318) present in 0.14. Its TLS feature
+# is `rustls-aws-lc-rs`; its matrix-sdk-sqlite requires rusqlite 0.40.
+matrix-sdk = { version = "0.19", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "rustls-aws-lc-rs"] }
 # Application-level OAuth-token encryption at rest (§16.1). Both crates are
 # already in the resolved dependency tree (pulled transitively by matrix-sdk /
 # vodozemac), so declaring them directly reuses the existing versions without
