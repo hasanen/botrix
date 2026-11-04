@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 /// Visual status variants for the badge.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BadgeStatus {
     /// Green — everything is working.
     Connected,
