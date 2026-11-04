@@ -65,7 +65,8 @@ fn LogsContent() -> impl IntoView {
                                     <th class="py-2 pr-4">"Time"</th>
                                     <th class="py-2 pr-4">"Level"</th>
                                     <th class="py-2 pr-4">"Component"</th>
-                                    <th class="py-2">"Message"</th>
+                                    <th class="py-2 pr-4">"Message"</th>
+                                    <th class="py-2">"Details"</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -78,7 +79,8 @@ fn LogsContent() -> impl IntoView {
                                                 <StatusBadge status=badge label=label.to_string() />
                                             </td>
                                             <td class="py-2 pr-4">{entry.component}</td>
-                                            <td class="py-2">{entry.message}</td>
+                                            <td class="py-2 pr-4">{entry.message}</td>
+                                            <td class="py-2 text-gray-600">{entry.details.unwrap_or_default()}</td>
                                         </tr>
                                     }
                                 }).collect_view()}

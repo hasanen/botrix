@@ -220,25 +220,32 @@ async fn notifications_per_page_is_clamped_and_page_floored() {
 
 #[tokio::test]
 async fn logs_are_paginated_newest_first_with_default_page_size_of_50() {
-    // Arrange
+    // Arrange: authenticating itself records events (admin created, login),
+    // so seed after it and account for that baseline.
     let (app, pool) = test_app().await;
+    let jar = authenticate(&app).await;
+    let baseline = body_json(get(&app, Some(&jar), "/api/v1/logs").await).await["total"]
+        .as_i64()
+        .unwrap();
     for n in 1..=55 {
         insert_log(&pool, n, if n % 2 == 0 { "WARN" } else { "INFO" });
     }
-    let jar = authenticate(&app).await;
 
     // Act
     let page1 = body_json(get(&app, Some(&jar), "/api/v1/logs").await).await;
     let page2 = body_json(get(&app, Some(&jar), "/api/v1/logs?page=2").await).await;
 
     // Assert
-    assert_eq!(page1["total"], 55);
+    assert_eq!(page1["total"], baseline + 55);
     assert_eq!(page1["per_page"], 50);
     assert_eq!(page1["items"].as_array().unwrap().len(), 50);
     assert_eq!(page1["items"][0]["message"], "event 55");
     assert_eq!(page1["items"][0]["level"], "INFO");
     assert_eq!(page1["items"][1]["level"], "WARN");
-    assert_eq!(page2["items"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        page2["items"].as_array().unwrap().len() as i64,
+        baseline + 55 - 50
+    );
 }
 
 #[tokio::test]

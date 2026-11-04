@@ -12,11 +12,13 @@ use axum::http::HeaderMap;
 use axum::Json;
 use axum_csrf::CsrfToken;
 use botrix_common::api::auth::{CsrfResponse, LoginRequest, SessionInfo, SetupRequest};
+use botrix_common::types::LogLevel;
 use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
 use super::error::ApiError;
-use crate::db::auth as db_auth;
+use crate::db::auth::{self as db_auth, AuthError};
+use crate::db::logs::{record, Component};
 use crate::session;
 use crate::state::AppState;
 
@@ -48,6 +50,13 @@ pub async fn setup(
     validate_credentials(&req.username, &req.password)?;
 
     db_auth::create_admin(&state.pool, &req.username, &req.password)?;
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Auth,
+        "admin account created",
+        Some(&req.username),
+    );
 
     Ok(Json(SessionInfo {
         username: req.username,
@@ -64,20 +73,55 @@ pub async fn login(
 ) -> Result<Json<SessionInfo>, ApiError> {
     verify_csrf(&token, &headers)?;
 
-    let username = db_auth::verify_login(&state.pool, &req.username, &req.password)?;
+    let username = match db_auth::verify_login(&state.pool, &req.username, &req.password) {
+        Ok(username) => username,
+        Err(err) => {
+            if matches!(err, AuthError::InvalidCredentials) {
+                // Deliberately omits the attempted username: people paste
+                // passwords into the username field, and this endpoint is
+                // reachable without authentication.
+                record(
+                    &state.pool,
+                    LogLevel::Warn,
+                    Component::Auth,
+                    "login failed",
+                    None,
+                );
+            }
+            return Err(err.into());
+        }
+    };
     session::log_in(&session, &username).await?;
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Auth,
+        "login succeeded",
+        Some(&username),
+    );
 
     Ok(Json(SessionInfo { username }))
 }
 
 /// `POST /api/v1/auth/logout` — end the current session.
 pub async fn logout(
+    State(state): State<AppState>,
     session: Session,
     token: CsrfToken,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     verify_csrf(&token, &headers)?;
+    let username = session::current_user(&session).await;
     session::log_out(&session).await?;
+    if let Some(username) = username {
+        record(
+            &state.pool,
+            LogLevel::Info,
+            Component::Auth,
+            "logged out",
+            Some(&username),
+        );
+    }
     Ok(Json(serde_json::json!({ "status": "ok" })))
 }
 

@@ -11,9 +11,11 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use botrix_common::types::LogLevel;
 
 use super::auth::{parse_bearer, verify_token};
 use super::template;
+use crate::db::logs::{record, Component};
 use crate::db::webhooks as db_webhooks;
 use crate::state::AppState;
 
@@ -101,21 +103,48 @@ async fn process(
         _ => return WebhookResponse::Unauthorized,
     }
 
+    // Everything below runs only for callers holding a valid token, so
+    // rejections are recorded for the operator (unauthenticated requests are
+    // not: anyone could use them to flood the log).
+    let reject = |reason: &str, detail: String| {
+        record(
+            &state.pool,
+            LogLevel::Warn,
+            Component::Webhook,
+            &format!("payload rejected: {reason}"),
+            Some(&format!("{identifier}: {detail}")),
+        );
+    };
+
     // 3. Enforce the body size limit before parsing.
     if body.len() > state.config.server.max_body_bytes {
+        reject(
+            "too large",
+            format!(
+                "{} bytes exceeds the {} byte limit",
+                body.len(),
+                state.config.server.max_body_bytes
+            ),
+        );
         return WebhookResponse::PayloadTooLarge;
     }
 
     // 4. Parse the JSON payload.
     let payload: serde_json::Value = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(err) => return WebhookResponse::BadRequest(format!("invalid JSON payload: {err}")),
+        Err(err) => {
+            reject("invalid JSON", err.to_string());
+            return WebhookResponse::BadRequest(format!("invalid JSON payload: {err}"));
+        }
     };
 
     // 5. Render the message template (also sanitizes substituted values).
     let rendered = match template::render(&webhook.msg_template, &payload) {
         Ok(msg) => msg,
-        Err(err) => return WebhookResponse::BadRequest(err.to_string()),
+        Err(err) => {
+            reject("template error", err.to_string());
+            return WebhookResponse::BadRequest(err.to_string());
+        }
     };
 
     // 6. Persist the notification as `pending` for the background worker.

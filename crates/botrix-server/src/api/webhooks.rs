@@ -9,10 +9,12 @@ use axum::http::HeaderMap;
 use axum::Json;
 use axum_csrf::CsrfToken;
 use botrix_common::api::webhooks::{TokenGenerateResponse, WebhookInfo};
+use botrix_common::types::LogLevel;
 use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
 use super::error::ApiError;
+use crate::db::logs::{record, Component};
 use crate::db::webhooks as db_webhooks;
 use crate::session;
 use crate::state::AppState;
@@ -68,6 +70,14 @@ pub async fn generate_token(
     let plaintext = token_auth::generate_token();
     let hash = token_auth::hash_token(&plaintext);
     db_webhooks::set_token_hash(&state.pool, &id, &hash)?;
+    // Only the webhook id is logged, never the token.
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Webhook,
+        "token generated",
+        Some(&id),
+    );
 
     Ok(Json(TokenGenerateResponse { token: plaintext }))
 }
@@ -84,5 +94,14 @@ pub async fn revoke_token(
     verify_csrf(&token, &headers)?;
 
     let revoked = db_webhooks::revoke_token(&state.pool, &id)?;
+    if revoked {
+        record(
+            &state.pool,
+            LogLevel::Info,
+            Component::Webhook,
+            "token revoked",
+            Some(&id),
+        );
+    }
     Ok(Json(serde_json::json!({ "revoked": revoked })))
 }

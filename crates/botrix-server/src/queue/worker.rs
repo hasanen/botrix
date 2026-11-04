@@ -8,6 +8,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use botrix_common::types::LogLevel;
+
+use crate::db::logs::{record, Component};
 use crate::db::webhooks as db_webhooks;
 use crate::db::Pool;
 
@@ -82,6 +85,16 @@ async fn process_one(
             if let Err(err) = db_webhooks::mark_failed(pool, item.id, reason) {
                 tracing::error!(id = item.id, error = %err, "failed to mark failed");
             }
+            record(
+                pool,
+                LogLevel::Error,
+                Component::Queue,
+                "delivery failed",
+                Some(&format!(
+                    "notification {} to '{}': {reason}",
+                    item.id, item.destination
+                )),
+            );
         }
         Transition::Retry { delay } => {
             // Return to `pending` after the backoff delay so the next poll can
@@ -185,6 +198,40 @@ mod tests {
         poll_once(&pool, &sender).await.unwrap();
 
         assert_eq!(status_of(&pool, id), "failed");
+    }
+
+    #[tokio::test]
+    async fn terminal_failure_records_an_error_event_without_the_message_body() {
+        // Arrange
+        let pool = test_pool();
+        let id = insert_notification(&pool, "wud", "containers", "secret body text").unwrap();
+        let sender = FakeSender::always(SendError::Permanent("no such room".into()));
+
+        // Act
+        poll_once(&pool, &sender).await.unwrap();
+
+        // Assert
+        let (items, total) = crate::db::history::list_logs(&pool, 1, 10).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(items[0].level, LogLevel::Error);
+        assert_eq!(items[0].component, "queue");
+        assert_eq!(items[0].message, "delivery failed");
+        let details = items[0].details.as_deref().unwrap();
+        assert!(details.contains(&format!("notification {id}")));
+        assert!(details.contains("containers"));
+        // The notification text may be sensitive; it must not be copied.
+        assert!(!details.contains("secret body text"));
+    }
+
+    #[tokio::test]
+    async fn successful_delivery_records_no_event() {
+        let pool = test_pool();
+        insert_notification(&pool, "wud", "containers", "hi").unwrap();
+
+        poll_once(&pool, &FakeSender::always_ok()).await.unwrap();
+
+        let (_, total) = crate::db::history::list_logs(&pool, 1, 10).unwrap();
+        assert_eq!(total, 0);
     }
 
     #[tokio::test]

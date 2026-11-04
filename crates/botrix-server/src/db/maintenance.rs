@@ -56,6 +56,7 @@ pub fn spawn_cleanup_task(pool: Pool) -> tokio::task::JoinHandle<()> {
         let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
         loop {
             interval.tick().await;
+            let pool_for_log = pool.clone();
             let pool = pool.clone();
             let result =
                 tokio::task::spawn_blocking(move || cleanup_expired(&pool, now_unix())).await;
@@ -66,6 +67,16 @@ pub fn spawn_cleanup_task(pool: Pool) -> tokio::task::JoinHandle<()> {
                             notifications = stats.notifications_deleted,
                             log_events = stats.log_events_deleted,
                             "history cleanup removed expired rows"
+                        );
+                        crate::db::logs::record(
+                            &pool_for_log,
+                            botrix_common::types::LogLevel::Info,
+                            crate::db::logs::Component::System,
+                            "history cleanup removed expired rows",
+                            Some(&format!(
+                                "{} notification(s), {} log event(s)",
+                                stats.notifications_deleted, stats.log_events_deleted
+                            )),
                         );
                     }
                 }

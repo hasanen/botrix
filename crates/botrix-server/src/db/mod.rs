@@ -8,6 +8,7 @@
 
 pub mod auth;
 pub mod history;
+pub mod logs;
 pub mod maintenance;
 pub mod matrix;
 pub mod migrate;
@@ -77,6 +78,13 @@ pub fn init(db_path: &str) -> Result<Pool, DbError> {
         tracing::warn!(
             count = recovered,
             "reset notifications stuck in 'processing' to 'pending' after restart"
+        );
+        logs::record(
+            &pool,
+            botrix_common::types::LogLevel::Warn,
+            logs::Component::System,
+            "recovered interrupted deliveries after restart",
+            Some(&format!("{recovered} notification(s) returned to pending")),
         );
     }
 

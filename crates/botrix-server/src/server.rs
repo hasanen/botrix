@@ -77,9 +77,25 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         Ok(client) => client,
         Err(err) => {
             tracing::error!(error = %err, "error during Matrix session restore; continuing disconnected");
+            crate::db::logs::record(
+                &pool,
+                botrix_common::types::LogLevel::Error,
+                crate::db::logs::Component::Matrix,
+                "session restore failed; continuing disconnected",
+                Some(&err.to_string()),
+            );
             None
         }
     };
+    if let Some(client) = &matrix_client {
+        crate::db::logs::record(
+            &pool,
+            botrix_common::types::LogLevel::Info,
+            crate::db::logs::Component::Matrix,
+            "session restored",
+            client.user_id().map(|u| u.to_string()).as_deref(),
+        );
+    }
 
     let sender: std::sync::Arc<dyn crate::queue::sender::MessageSender> = match &matrix_client {
         Some(client) => {
@@ -104,6 +120,7 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         .map(|v| v != "1" && v.to_lowercase() != "true")
         .unwrap_or(true);
 
+    let pool_for_log = pool.clone();
     let mut router = build_app_with_matrix(
         pool,
         config.clone(),
@@ -130,6 +147,13 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     tracing::info!(%addr, "starting Botrix server");
+    crate::db::logs::record(
+        &pool_for_log,
+        botrix_common::types::LogLevel::Info,
+        crate::db::logs::Component::System,
+        "server started",
+        Some(&format!("version {}", env!("CARGO_PKG_VERSION"))),
+    );
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

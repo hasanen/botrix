@@ -26,11 +26,12 @@ use botrix_common::api::matrix::{
     ConnectPollResponse, ConnectPollStatus, ConnectResponse, DisconnectRequest, MatrixStatus,
     RecoveryKeyRequest, RoomInfo, TestMessageRequest,
 };
-use botrix_common::types::{MatrixConnectionStatus, RoomMembershipState};
+use botrix_common::types::{LogLevel, MatrixConnectionStatus, RoomMembershipState};
 use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
 use super::error::ApiError;
+use crate::db::logs::{record, Component};
 use crate::db::matrix as db_matrix;
 use crate::session;
 use crate::state::AppState;
@@ -194,6 +195,13 @@ pub async fn disconnect(
 
     db_matrix::clear_session(&state.pool)?;
     tracing::info!("Matrix session disconnected by admin");
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Matrix,
+        "disconnected by admin",
+        None,
+    );
     Ok(Json(serde_json::json!({ "status": "disconnected" })))
 }
 
@@ -240,6 +248,13 @@ pub async fn join_room(
         ApiError::Conflict("failed to join room; see server logs".to_owned())
     })?;
 
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Matrix,
+        "joined room",
+        Some(&name),
+    );
     Ok(Json(serde_json::json!({ "status": "joined" })))
 }
 
@@ -274,9 +289,34 @@ pub async fn test_message(
 
     let body = "Botrix test message — if you can read this, delivery works.";
     match state.sender.send(&req.destination, body).await {
-        Ok(()) => Ok(Json(serde_json::json!({ "status": "sent" }))),
-        Err(crate::queue::sender::SendError::Permanent(msg)) => Err(ApiError::BadRequest(msg)),
-        Err(crate::queue::sender::SendError::Transient(msg)) => Err(ApiError::Conflict(msg)),
+        Ok(()) => {
+            record(
+                &state.pool,
+                LogLevel::Info,
+                Component::Matrix,
+                "test message sent",
+                Some(&req.destination),
+            );
+            Ok(Json(serde_json::json!({ "status": "sent" })))
+        }
+        Err(err) => {
+            let (msg, api_err) = match err {
+                crate::queue::sender::SendError::Permanent(msg) => {
+                    (msg.clone(), ApiError::BadRequest(msg))
+                }
+                crate::queue::sender::SendError::Transient(msg) => {
+                    (msg.clone(), ApiError::Conflict(msg))
+                }
+            };
+            record(
+                &state.pool,
+                LogLevel::Warn,
+                Component::Matrix,
+                "test message failed",
+                Some(&format!("{}: {msg}", req.destination)),
+            );
+            Err(api_err)
+        }
     }
 }
 

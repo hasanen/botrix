@@ -10,10 +10,12 @@ use axum_csrf::CsrfToken;
 use botrix_common::api::settings::{
     AppInfo, ChangePasswordRequest, Settings, UpdateSettingsRequest,
 };
+use botrix_common::types::LogLevel;
 use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
 use super::error::ApiError;
+use crate::db::logs::{record, Component};
 use crate::db::{auth as db_auth, settings as db_settings};
 use crate::session;
 use crate::state::AppState;
@@ -65,6 +67,16 @@ pub async fn update_settings(
         absolute_lifetime_secs: req.absolute_lifetime_secs,
     };
     db_settings::update_settings(&state.pool, &settings)?;
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Auth,
+        "session settings updated",
+        Some(&format!(
+            "idle {}s, absolute {}s",
+            settings.idle_timeout_secs, settings.absolute_lifetime_secs
+        )),
+    );
     Ok(Json(settings))
 }
 
@@ -97,12 +109,35 @@ pub async fn change_password(
         ));
     }
 
-    db_auth::change_password(
+    if let Err(err) = db_auth::change_password(
         &state.pool,
         &username,
         &req.current_password,
         &req.new_password,
-    )?;
+    ) {
+        if matches!(err, db_auth::AuthError::InvalidCredentials) {
+            record(
+                &state.pool,
+                LogLevel::Warn,
+                Component::Auth,
+                "password change failed: current password incorrect",
+                Some(&username),
+            );
+            // Not a 401: the session is fine, and the UI treats 401 as an
+            // expired session and redirects to the login page.
+            return Err(ApiError::BadRequest(
+                "current password is incorrect".to_owned(),
+            ));
+        }
+        return Err(err.into());
+    }
+    record(
+        &state.pool,
+        LogLevel::Info,
+        Component::Auth,
+        "password changed",
+        Some(&username),
+    );
 
     Ok(Json(serde_json::json!({ "status": "ok" })))
 }
