@@ -16,6 +16,11 @@ use crate::state::AppState;
 /// Minimum length of `BOTRIX_SESSION_SECRET` in bytes (§16.4).
 const MIN_SESSION_SECRET_BYTES: usize = 32;
 
+/// Maximum body size for the authenticated UI API (plan §16.6). Bodies here are
+/// small JSON forms; the inbound webhook endpoint has its own, configurable
+/// limit (`server.max_body_bytes`).
+const API_MAX_BODY_BYTES: usize = 64 * 1024;
+
 /// Errors that can occur during server startup.
 #[derive(Debug, Error)]
 pub enum ServerError {
@@ -294,6 +299,10 @@ fn build_router(state: AppState) -> Router {
             "/api/v1/matrix/recovery-key",
             post(api_matrix::recovery_key),
         )
+        // Applies to the routes above only (layers affect routes added before
+        // them); the webhook router merged below keeps its own limit. Axum
+        // rejects over-limit bodies with 413 while reading, before parsing.
+        .layer(DefaultBodyLimit::max(API_MAX_BODY_BYTES))
         .merge(notify)
         .with_state(state)
 }
