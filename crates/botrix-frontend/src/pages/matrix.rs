@@ -252,7 +252,9 @@ fn MatrixContent() -> impl IntoView {
                     <h2 id="recovery-heading" class="text-xl font-semibold mb-2">"Encryption recovery key"</h2>
                     <p class="text-sm text-gray-600 mb-4">
                         "Enter your recovery key so Botrix can send messages to encrypted rooms. "
-                        "The key is used once and is not stored."
+                        "It is used once to import the encryption keys into Botrix's local, "
+                        "passphrase-encrypted store, then discarded — it is never saved, and "
+                        "restarts do not ask for it again."
                     </p>
                     <form on:submit=on_recovery_submit class="flex items-end gap-2 max-w-lg">
                         <div class="w-full">

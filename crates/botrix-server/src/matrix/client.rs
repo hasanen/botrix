@@ -275,6 +275,31 @@ pub async fn complete_login(
     })
 }
 
+/// Bootstrap E2EE from the account's recovery key (plan §9.5).
+///
+/// Opens secret storage with `recovery_key`, imports the cross-signing and
+/// key-backup secrets into the local crypto store, and leaves recovery
+/// `Enabled`. The key is used only for this call and is never stored; the
+/// imported secrets persist in the SDK crypto store (`crypto.db`), so later
+/// restarts need no key.
+pub async fn recover_e2ee(client: &Client, recovery_key: &str) -> Result<(), MatrixError> {
+    client
+        .encryption()
+        .recovery()
+        .recover(recovery_key)
+        .await
+        .map_err(|e| MatrixError::InvalidRecoveryKey(e.to_string()))
+}
+
+/// Whether E2EE is bootstrapped on this client (recovery state `Enabled`).
+pub fn e2ee_ready(client: &Client) -> bool {
+    use matrix_sdk::encryption::recovery::RecoveryState;
+    matches!(
+        client.encryption().recovery().state(),
+        RecoveryState::Enabled
+    )
+}
+
 /// Build the logical destination → room-ID map from config, for the sender.
 pub fn destination_map(config: &Config) -> HashMap<String, String> {
     config

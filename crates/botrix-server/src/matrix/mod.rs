@@ -57,9 +57,9 @@ pub enum MatrixError {
     /// E2EE has not been bootstrapped; a recovery key is required.
     #[error("E2EE not bootstrapped — submit the recovery key")]
     E2eeNotBootstrapped,
-    /// The recovery key was rejected by the server.
-    #[error("invalid recovery key")]
-    InvalidRecoveryKey,
+    /// The recovery key was rejected, or importing secrets with it failed.
+    #[error("recovery failed: {0}")]
+    InvalidRecoveryKey(String),
     /// Encrypting an OAuth token for storage failed.
     #[error("token encryption failed: {0}")]
     TokenEncryption(String),

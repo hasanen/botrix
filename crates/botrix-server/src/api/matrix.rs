@@ -63,13 +63,16 @@ pub async fn status(
     require_user(&session).await?;
 
     let s = db_matrix::get_state(&state.pool)?;
+    // Report E2EE readiness from the live client's recovery state, if connected.
+    let e2ee_bootstrapped = match state.matrix.client().await {
+        Some(client) => client::e2ee_ready(&client),
+        None => false,
+    };
     Ok(Json(MatrixStatus {
         status: status_enum(&s.status),
         user_id: s.user_id,
         homeserver: s.homeserver,
-        // E2EE bootstrap tracking is part of the stubbed recovery-key work;
-        // always false until that is implemented (§9.5).
-        e2ee_bootstrapped: false,
+        e2ee_bootstrapped,
         connected_at: s.connected_at,
     }))
 }
@@ -500,15 +503,14 @@ pub async fn test_message(
     }
 }
 
-/// `POST /api/v1/matrix/recovery-key` — submit the E2EE recovery key (§9.5).
+/// `POST /api/v1/matrix/recovery-key` — bootstrap E2EE from the recovery key (§9.5).
 ///
-/// TODO(plan §9.5): Pass the recovery key to the SDK's key-backup restore, then
-/// mark E2EE bootstrapped and verify an encrypted test send. This bootstrap
-/// needs a live homeserver to exercise, so the key is accepted syntactically
-/// but the operation reports "not yet implemented". The key is never persisted
-/// (§16.11).
+/// Imports the account's cross-signing and key-backup secrets into the local
+/// crypto store so the bot can send to encrypted rooms. The key is used once
+/// and never stored; the imported secrets persist in the SDK crypto store, so
+/// later restarts need no key (§16.11).
 pub async fn recovery_key(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     session: Session,
     token: CsrfToken,
     headers: HeaderMap,
@@ -523,10 +525,37 @@ pub async fn recovery_key(
         ));
     }
 
-    Err(ApiError::Conflict(
-        "E2EE recovery-key bootstrap is not yet implemented (requires a live homeserver; see plan §9.5)"
-            .to_owned(),
-    ))
+    let client = state
+        .matrix
+        .client()
+        .await
+        .ok_or_else(|| ApiError::Conflict("no active Matrix session".to_owned()))?;
+
+    match client::recover_e2ee(&client, req.recovery_key.trim()).await {
+        Ok(()) => {
+            record(
+                &state.pool,
+                LogLevel::Info,
+                Component::Matrix,
+                "E2EE bootstrapped from recovery key",
+                None,
+            );
+            Ok(Json(serde_json::json!({ "status": "ok" })))
+        }
+        Err(err) => {
+            // The recovery key is secret; log only that it failed, not the key
+            // or the raw error (which could echo input).
+            tracing::warn!("E2EE recovery failed");
+            record(
+                &state.pool,
+                LogLevel::Warn,
+                Component::Matrix,
+                "E2EE recovery key rejected",
+                None,
+            );
+            Err(err.into())
+        }
+    }
 }
 
 #[cfg(test)]

@@ -82,6 +82,9 @@ impl From<crate::matrix::MatrixError> for ApiError {
             MatrixError::InvalidRoomId { room_id, reason } => {
                 ApiError::BadRequest(format!("invalid room ID '{room_id}': {reason}"))
             }
+            MatrixError::InvalidRecoveryKey(msg) => {
+                ApiError::BadRequest(format!("recovery key failed: {msg}"))
+            }
             // No active session is a conflict with the requested operation.
             MatrixError::NoSession => ApiError::Conflict("no active Matrix session".to_owned()),
             // Everything else (SDK, crypto, client build, DB) is internal.
