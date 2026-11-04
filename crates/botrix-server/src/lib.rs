@@ -13,6 +13,7 @@
 #![allow(dead_code)]
 
 pub mod api;
+pub mod assets;
 pub mod cli;
 pub mod config;
 pub mod db;

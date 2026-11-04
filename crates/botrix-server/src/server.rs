@@ -114,14 +114,18 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     )
     .await?;
 
-    // Serve the compiled frontend from BOTRIX_FRONTEND_DIR if set, with an
-    // SPA fallback to index.html for client-side routing.
+    // Serve the frontend. BOTRIX_FRONTEND_DIR (development) serves from disk;
+    // otherwise the build embedded in the binary is used. Both fall back to
+    // index.html for client-side routes.
     if let Ok(dir) = std::env::var("BOTRIX_FRONTEND_DIR") {
         use tower_http::services::{ServeDir, ServeFile};
         let index = format!("{dir}/index.html");
         let serve = ServeDir::new(&dir).fallback(ServeFile::new(index));
         router = router.fallback_service(serve);
-        tracing::info!(dir, "serving frontend assets");
+        tracing::info!(dir, "serving frontend assets from disk");
+    } else {
+        router = router.fallback(crate::assets::embedded_handler);
+        tracing::info!("serving embedded frontend assets");
     }
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
