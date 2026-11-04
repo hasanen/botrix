@@ -18,6 +18,36 @@ pub enum ApiError {
     Deserialize(String),
 }
 
+impl ApiError {
+    /// A message suitable for showing to the user.
+    ///
+    /// For server errors this extracts the `error` field of the JSON body the
+    /// API returns, falling back to the raw body (or the status code if empty).
+    pub fn user_message(&self) -> String {
+        match self {
+            ApiError::Server { status, message } => {
+                #[derive(Deserialize)]
+                struct Body {
+                    error: String,
+                }
+                if let Ok(body) = serde_json::from_str::<Body>(message) {
+                    body.error
+                } else if message.trim().is_empty() {
+                    format!("request failed with status {status}")
+                } else {
+                    message.clone()
+                }
+            }
+            other => other.to_string(),
+        }
+    }
+
+    /// Whether this is an HTTP 401 (session missing or expired).
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, ApiError::Server { status: 401, .. })
+    }
+}
+
 impl From<gloo_net::Error> for ApiError {
     fn from(err: gloo_net::Error) -> Self {
         ApiError::Network(err.to_string())
@@ -98,11 +128,15 @@ pub async fn post_csrf<B: Serialize, T: for<'de> Deserialize<'de>>(
 }
 
 /// Perform a `PUT` request with a JSON body and deserialize the JSON response.
-pub async fn put<B: Serialize, T: for<'de> Deserialize<'de>>(
+///
+/// Fetches a CSRF token first; the server requires one on all mutating calls.
+pub async fn put_csrf<B: Serialize, T: for<'de> Deserialize<'de>>(
     path: &str,
     body: &B,
 ) -> Result<T, ApiError> {
+    let csrf = fetch_csrf().await?;
     let response = Request::put(path)
+        .header("x-csrf-token", &csrf)
         .json(body)
         .map_err(|e| ApiError::Network(e.to_string()))?
         .send()
@@ -120,9 +154,13 @@ pub async fn put<B: Serialize, T: for<'de> Deserialize<'de>>(
         .map_err(|e| ApiError::Deserialize(e.to_string()))
 }
 
-/// Perform a `DELETE` request and return the HTTP status code.
-pub async fn delete(path: &str) -> Result<u16, ApiError> {
-    let response = Request::delete(path).send().await?;
+/// Perform a `DELETE` request with a fresh CSRF token and deserialize the JSON response.
+pub async fn delete_csrf<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, ApiError> {
+    let csrf = fetch_csrf().await?;
+    let response = Request::delete(path)
+        .header("x-csrf-token", &csrf)
+        .send()
+        .await?;
 
     if !response.ok() {
         let status = response.status();
@@ -130,5 +168,55 @@ pub async fn delete(path: &str) -> Result<u16, ApiError> {
         return Err(ApiError::Server { status, message });
     }
 
-    Ok(response.status())
+    response
+        .json::<T>()
+        .await
+        .map_err(|e| ApiError::Deserialize(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_message_extracts_json_error_field() {
+        let err = ApiError::Server {
+            status: 409,
+            message: r#"{"error":"no active Matrix session"}"#.to_owned(),
+        };
+        assert_eq!(err.user_message(), "no active Matrix session");
+    }
+
+    #[test]
+    fn user_message_falls_back_to_raw_body() {
+        let err = ApiError::Server {
+            status: 502,
+            message: "Bad Gateway".to_owned(),
+        };
+        assert_eq!(err.user_message(), "Bad Gateway");
+    }
+
+    #[test]
+    fn user_message_reports_status_for_empty_body() {
+        let err = ApiError::Server {
+            status: 500,
+            message: "  ".to_owned(),
+        };
+        assert_eq!(err.user_message(), "request failed with status 500");
+    }
+
+    #[test]
+    fn is_unauthorized_only_matches_401() {
+        let unauthorized = ApiError::Server {
+            status: 401,
+            message: String::new(),
+        };
+        let forbidden = ApiError::Server {
+            status: 403,
+            message: String::new(),
+        };
+        assert!(unauthorized.is_unauthorized());
+        assert!(!forbidden.is_unauthorized());
+        assert!(!ApiError::Network("x".to_owned()).is_unauthorized());
+    }
 }
