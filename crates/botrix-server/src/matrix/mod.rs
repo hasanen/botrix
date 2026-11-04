@@ -9,10 +9,12 @@
 pub mod auth;
 pub mod client;
 pub mod crypto;
+pub mod handle;
 pub mod sender;
 pub mod session;
 pub mod worker;
 
+pub use handle::MatrixHandle;
 pub use sender::MatrixSender;
 
 use async_trait::async_trait;

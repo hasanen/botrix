@@ -52,13 +52,79 @@ pub fn load(path: &str) -> Result<Config, ConfigError> {
         source,
     })?;
 
+    let mut config = config;
+    apply_public_url_override(&mut config, std::env::var("BOTRIX_PUBLIC_URL").ok());
+
     validate::validate(&config)?;
 
     tracing::info!(path, "configuration loaded and validated");
     Ok(config)
 }
 
+/// Apply the `BOTRIX_PUBLIC_URL` environment override onto `config`.
+///
+/// A non-empty value overrides `server.public_url`; an empty or absent value
+/// leaves the file's value untouched. Pulled out as a pure function so the
+/// precedence can be tested without touching the process environment.
+fn apply_public_url_override(config: &mut Config, env_value: Option<String>) {
+    if let Some(value) = env_value {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            config.server.public_url = Some(trimmed.to_owned());
+        }
+    }
+}
+
 /// Resolve the path to a file inside the data directory.
 pub fn data_path(data_dir: &str, filename: &str) -> std::path::PathBuf {
     Path::new(data_dir).join(filename)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config() -> Config {
+        Config {
+            matrix: botrix_common::config::MatrixConfig {
+                homeserver: "https://matrix.example.com".to_owned(),
+                destinations: Default::default(),
+            },
+            webhooks: Default::default(),
+            server: Default::default(),
+        }
+    }
+
+    #[test]
+    fn env_sets_public_url_when_file_has_none() {
+        let mut c = config();
+        apply_public_url_override(&mut c, Some("https://botrix.example.com".to_owned()));
+        assert_eq!(
+            c.server.public_url.as_deref(),
+            Some("https://botrix.example.com")
+        );
+    }
+
+    #[test]
+    fn env_overrides_the_file_value() {
+        let mut c = config();
+        c.server.public_url = Some("https://from-file.example.com".to_owned());
+        apply_public_url_override(&mut c, Some("https://from-env.example.com".to_owned()));
+        assert_eq!(
+            c.server.public_url.as_deref(),
+            Some("https://from-env.example.com")
+        );
+    }
+
+    #[test]
+    fn absent_or_empty_env_keeps_the_file_value() {
+        let mut c = config();
+        c.server.public_url = Some("https://from-file.example.com".to_owned());
+        apply_public_url_override(&mut c, None);
+        apply_public_url_override(&mut c, Some("   ".to_owned()));
+        assert_eq!(
+            c.server.public_url.as_deref(),
+            Some("https://from-file.example.com")
+        );
+    }
 }

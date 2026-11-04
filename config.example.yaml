@@ -39,3 +39,9 @@ server:
   host: "0.0.0.0"
   port: 8080
   max_body_bytes: 262144
+  # Public URL at which Botrix is reachable, used for the Matrix login
+  # redirect. The homeserver sends the browser back to
+  # {public_url}/api/v1/matrix/callback after you authorize the bot account.
+  # Required when running behind a reverse proxy; if omitted, Botrix derives
+  # the callback from the request, which only works without a proxy.
+  # public_url: "https://botrix.example.com"

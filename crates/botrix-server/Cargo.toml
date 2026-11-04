@@ -27,6 +27,7 @@ r2d2_sqlite = { workspace = true }
 matrix-sdk = { workspace = true }
 aes-gcm = { workspace = true }
 hkdf = { workspace = true }
+url = { workspace = true }
 argon2 = { workspace = true }
 tower-sessions = { workspace = true }
 rand = { workspace = true }

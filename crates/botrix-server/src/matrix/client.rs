@@ -11,11 +11,19 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use matrix_sdk::authentication::oauth::{ClientId, OAuthSession, UserSession};
+use matrix_sdk::authentication::oauth::registration::{
+    ApplicationType, ClientMetadata, OAuthGrantType,
+};
+use matrix_sdk::authentication::oauth::{
+    ClientId, ClientRegistrationData, OAuthSession, UserSession,
+};
 use matrix_sdk::authentication::SessionTokens;
+use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{OwnedDeviceId, UserId};
 use matrix_sdk::store::RoomLoadSettings;
+use matrix_sdk::utils::UrlOrQuery;
 use matrix_sdk::{Client, SessionMeta};
+use url::Url;
 
 use crate::config::Config;
 use crate::db::matrix as db_matrix;
@@ -168,6 +176,103 @@ pub async fn restore_client(
             Ok(None)
         }
     }
+}
+
+/// Build the OAuth client metadata Botrix registers with the homeserver.
+///
+/// `redirect_uri` is where the homeserver sends the browser back after the
+/// operator authorizes; `public_base` is Botrix's own URL, used for the
+/// human-facing client fields. The grant type is authorization-code only.
+fn client_metadata(
+    redirect_uri: &str,
+    public_base: &str,
+) -> Result<Raw<ClientMetadata>, MatrixError> {
+    use matrix_sdk::authentication::oauth::registration::Localized;
+
+    let redirect = Url::parse(redirect_uri)
+        .map_err(|e| MatrixError::Sdk(format!("invalid redirect URI '{redirect_uri}': {e}")))?;
+    let client_uri = Url::parse(public_base)
+        .map_err(|e| MatrixError::Sdk(format!("invalid public URL '{public_base}': {e}")))?;
+
+    let mut metadata = ClientMetadata::new(
+        ApplicationType::Web,
+        vec![OAuthGrantType::AuthorizationCode {
+            redirect_uris: vec![redirect],
+        }],
+        Localized::new(client_uri, []),
+    );
+    metadata.client_name = Some(Localized::new("Botrix".to_owned(), []));
+
+    Raw::new(&metadata)
+        .map_err(|e| MatrixError::Sdk(format!("could not serialize client metadata: {e}")))
+}
+
+/// Begin an OAuth Authorization Code login (plan §9.3, redirect variant).
+///
+/// Registers the client and returns the homeserver authorization URL to open
+/// in the browser. The SDK holds the PKCE verifier and CSRF state inside
+/// `client`, so [`complete_login`] must be called on the *same* client.
+pub async fn begin_login(
+    client: &Client,
+    redirect_uri: &str,
+    public_base: &str,
+) -> Result<String, MatrixError> {
+    let metadata = client_metadata(redirect_uri, public_base)?;
+    let redirect = Url::parse(redirect_uri)
+        .map_err(|e| MatrixError::Sdk(format!("invalid redirect URI '{redirect_uri}': {e}")))?;
+
+    let registration: ClientRegistrationData = metadata.into();
+    let data = client
+        .oauth()
+        .login(redirect, None, Some(registration), None)
+        .build()
+        .await
+        .map_err(|e| MatrixError::Sdk(format!("could not start OAuth login: {e}")))?;
+
+    Ok(data.url.to_string())
+}
+
+/// Complete an OAuth login from the redirect callback's query string.
+///
+/// `query` is the raw query part of the callback URL (`code=...&state=...`).
+/// On success the homeserver session is active on `client`; this returns a
+/// [`SessionRecord`] with the tokens **encrypted** ready to persist.
+pub async fn complete_login(
+    client: &Client,
+    query: &str,
+    homeserver: &str,
+    crypto_passphrase: &str,
+) -> Result<db_matrix::SessionRecord, MatrixError> {
+    client
+        .oauth()
+        .finish_login(UrlOrQuery::Query(query.to_owned()))
+        .await
+        .map_err(|e| MatrixError::Sdk(format!("could not finish OAuth login: {e}")))?;
+
+    let session = client
+        .oauth()
+        .full_session()
+        .ok_or_else(|| MatrixError::Sdk("no session after finishing login".to_owned()))?;
+
+    let user = session.user;
+    let access_token = crypto::encrypt_token(crypto_passphrase, &user.tokens.access_token)
+        .map_err(|e| MatrixError::TokenEncryption(e.to_string()))?;
+    let refresh_token = match user.tokens.refresh_token.as_deref() {
+        Some(t) => Some(
+            crypto::encrypt_token(crypto_passphrase, t)
+                .map_err(|e| MatrixError::TokenEncryption(e.to_string()))?,
+        ),
+        None => None,
+    };
+
+    Ok(db_matrix::SessionRecord {
+        user_id: user.meta.user_id.to_string(),
+        homeserver: homeserver.to_owned(),
+        device_id: user.meta.device_id.to_string(),
+        oauth_client_id: Some(session.client_id.as_str().to_owned()),
+        access_token,
+        refresh_token,
+    })
 }
 
 /// Build the logical destination → room-ID map from config, for the sender.

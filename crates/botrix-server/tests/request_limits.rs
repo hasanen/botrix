@@ -51,6 +51,7 @@ async fn test_app(max_body_bytes: usize) -> Router {
             host: "127.0.0.1".to_owned(),
             port: 8080,
             max_body_bytes,
+            public_url: None,
         },
     };
     botrix_server::server::build_app(pool, config, SESSION_SECRET, false)

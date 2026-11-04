@@ -67,11 +67,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     crate::db::maintenance::spawn_cleanup_task(pool.clone());
 
     // Attempt to restore a persisted Matrix session (§9.4). On success the
-    // worker and API share a live-client-backed sender; otherwise they use the
-    // stub sender that keeps notifications queued. Matrix connectivity is not
-    // required for the server to run.
+    // shared handle holds a live client and routes delivery through it;
+    // otherwise it stays disconnected and notifications queue. Matrix
+    // connectivity is not required for the server to run.
     let crypto_passphrase = _crypto_passphrase;
-    let matrix_client = match crate::matrix::client::restore_client(
+    let destinations = crate::matrix::client::destination_map(&config);
+    let restored = match crate::matrix::client::restore_client(
         &pool,
         &config,
         data_dir,
@@ -92,32 +93,27 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
             None
         }
     };
-    if let Some(client) = &matrix_client {
-        crate::db::logs::record(
-            &pool,
-            botrix_common::types::LogLevel::Info,
-            crate::db::logs::Component::Matrix,
-            "session restored",
-            client.user_id().map(|u| u.to_string()).as_deref(),
-        );
-    }
 
-    let sender: std::sync::Arc<dyn crate::queue::sender::MessageSender> = match &matrix_client {
+    let matrix = match restored {
         Some(client) => {
             tracing::info!("Matrix session active; using live message sender");
-            std::sync::Arc::new(crate::matrix::MatrixSender::new(
-                client.clone(),
-                crate::matrix::client::destination_map(&config),
-            ))
+            crate::db::logs::record(
+                &pool,
+                botrix_common::types::LogLevel::Info,
+                crate::db::logs::Component::Matrix,
+                "session restored",
+                client.user_id().map(|u| u.to_string()).as_deref(),
+            );
+            crate::matrix::MatrixHandle::connected(client, destinations)
         }
         None => {
-            tracing::info!("Matrix not connected; using stub message sender");
-            std::sync::Arc::new(crate::matrix::StubSender)
+            tracing::info!("Matrix not connected; notifications will queue");
+            crate::matrix::MatrixHandle::new(destinations)
         }
     };
 
-    // Start the background notification worker with the chosen sender.
-    crate::queue::worker::spawn(pool.clone(), sender.clone());
+    // Start the background notification worker with the shared sender.
+    crate::queue::worker::spawn(pool.clone(), matrix.sender());
 
     // For local HTTP testing, allow disabling Secure cookies via env so the
     // browser accepts them over plain http://localhost. Defaults to secure.
@@ -131,8 +127,9 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         config.clone(),
         &session_secret,
         secure_cookies,
-        sender,
-        matrix_client,
+        matrix,
+        data_dir,
+        &crypto_passphrase,
     )
     .await?;
 
@@ -182,24 +179,35 @@ pub async fn build_app(
     session_secret: &str,
     secure_cookies: bool,
 ) -> Result<Router, ServerError> {
-    // Default to the stub sender and no Matrix client. Production startup uses
-    // [`build_app_with_matrix`] to inject a live-client-backed sender.
-    let sender: Arc<dyn crate::queue::sender::MessageSender> = Arc::new(crate::matrix::StubSender);
-    build_app_with_matrix(pool, config, session_secret, secure_cookies, sender, None).await
+    // A disconnected handle: notifications queue until a session is
+    // established. Production startup uses [`build_app_with_matrix`].
+    let destinations = crate::matrix::client::destination_map(&config);
+    let matrix = crate::matrix::MatrixHandle::new(destinations);
+    build_app_with_matrix(
+        pool,
+        config,
+        session_secret,
+        secure_cookies,
+        matrix,
+        "/data",
+        "test-passphrase",
+    )
+    .await
 }
 
-/// Build the application router, injecting the message sender and optional
-/// Matrix client into shared state.
+/// Build the application router with the given shared Matrix handle.
 ///
 /// Used by production startup so the test-message endpoint and the delivery
-/// worker share one sender, and the Matrix API can introspect the live client.
+/// worker share one sender, and the Matrix API can drive the OAuth flow and
+/// introspect the live client.
 pub async fn build_app_with_matrix(
     pool: crate::db::Pool,
     config: Config,
     session_secret: &str,
     secure_cookies: bool,
-    sender: Arc<dyn crate::queue::sender::MessageSender>,
-    matrix_client: Option<matrix_sdk::Client>,
+    matrix: crate::matrix::MatrixHandle,
+    data_dir: &str,
+    crypto_passphrase: &str,
 ) -> Result<Router, ServerError> {
     // The sessions table is created by our migrations; no store migrate step.
     let session_store = SqliteSessionStore::new(pool.clone());
@@ -227,8 +235,9 @@ pub async fn build_app_with_matrix(
         pool,
         config: Arc::new(config),
         csrf_config,
-        sender,
-        matrix_client,
+        matrix,
+        data_dir: Arc::from(data_dir),
+        crypto_passphrase: Arc::from(crypto_passphrase),
     };
 
     // Layer order matters: the timeout check runs inside the session layer
@@ -289,7 +298,7 @@ fn build_router(state: AppState) -> Router {
             post(api_matrix::join_room),
         )
         .route("/api/v1/matrix/connect", post(api_matrix::connect))
-        .route("/api/v1/matrix/connect/poll", get(api_matrix::connect_poll))
+        .route("/api/v1/matrix/callback", get(api_matrix::callback))
         .route("/api/v1/matrix/disconnect", post(api_matrix::disconnect))
         .route(
             "/api/v1/matrix/test-message",

@@ -1,28 +1,21 @@
 //! Matrix account and rooms management page.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use botrix_common::api::matrix::{
-    ConnectPollResponse, ConnectPollStatus, ConnectResponse, DisconnectRequest, MatrixStatus,
-    RecoveryKeyRequest, RoomInfo, TestMessageRequest,
+    ConnectResponse, DisconnectRequest, MatrixStatus, RecoveryKeyRequest, RoomInfo,
+    TestMessageRequest,
 };
 use botrix_common::types::{MatrixConnectionStatus, RoomMembershipState};
 
 use crate::api;
-use crate::components::copy_button::CopyButton;
 use crate::components::error_banner::ErrorBanner;
 use crate::components::layout::{redirect_if_unauthorized, AuthLayout};
 use crate::components::loading_spinner::LoadingSpinner;
 use crate::components::modal::ConfirmModal;
 use crate::components::status_badge::StatusBadge;
 use crate::util::{connection_badge, format_unix, membership_badge};
-
-/// Delay between polls of the OAuth device-grant outcome.
-const POLL_INTERVAL_MS: u32 = 5_000;
 
 /// Matrix page component.
 #[component]
@@ -34,25 +27,38 @@ pub fn MatrixPage() -> impl IntoView {
     }
 }
 
+/// Read a `?key=` value from the current URL's query string.
+fn query_param(key: &str) -> Option<String> {
+    let search = window().location().search().ok()?;
+    let query = search.strip_prefix('?').unwrap_or(&search);
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k == key).then(|| v.to_owned())
+    })
+}
+
 #[component]
 fn MatrixContent() -> impl IntoView {
     let (status, set_status) = signal(Option::<MatrixStatus>::None);
     let (rooms, set_rooms) = signal(Vec::<RoomInfo>::new());
     let (error, set_error) = signal(Option::<String>::None);
     let (notice, set_notice) = signal(Option::<String>::None);
+    let (connecting, set_connecting) = signal(false);
     let (reload, set_reload) = signal(0_u32);
-
-    // Device-grant flow state.
-    let (grant, set_grant) = signal(Option::<ConnectResponse>::None);
-    let alive = Arc::new(AtomicBool::new(true));
-    {
-        let alive = alive.clone();
-        on_cleanup(move || alive.store(false, Ordering::Relaxed));
-    }
 
     let (confirm_disconnect, set_confirm_disconnect) = signal(false);
     let (recovery_key, set_recovery_key) = signal(String::new());
     let (test_destination, set_test_destination) = signal(String::new());
+
+    // Surface the outcome the callback redirect reported via the query string.
+    if query_param("connected").is_some() {
+        set_notice.set(Some("Matrix account connected.".to_owned()));
+    } else if let Some(err) = query_param("error") {
+        set_error.set(Some(match err.as_str() {
+            "denied" => "Authorization was denied on the homeserver.".to_owned(),
+            _ => "Matrix login failed. Check the logs and try again.".to_owned(),
+        }));
+    }
 
     let report = move |e: api::ApiError| {
         if !redirect_if_unauthorized(&e) {
@@ -81,22 +87,25 @@ fn MatrixContent() -> impl IntoView {
         });
     });
 
-    let on_connect = {
-        let alive = alive.clone();
-        move |_| {
-            set_error.set(None);
-            set_notice.set(None);
-            let alive = alive.clone();
-            spawn_local(async move {
-                match api::post_csrf::<_, ConnectResponse>("/api/v1/matrix/connect", &()).await {
-                    Ok(resp) => {
-                        set_grant.set(Some(resp));
-                        poll_until_done(alive, set_grant, set_error, set_notice, set_reload).await;
-                    }
-                    Err(e) => report(e),
+    // Start login: POST /connect, then send the browser to the homeserver's
+    // authorization URL. It redirects back to /matrix?connected=1 when done.
+    let on_connect = move |_| {
+        set_error.set(None);
+        set_notice.set(None);
+        set_connecting.set(true);
+        spawn_local(async move {
+            match api::post_csrf::<_, ConnectResponse>("/api/v1/matrix/connect", &()).await {
+                Ok(resp) => {
+                    let _ = window().location().set_href(&resp.authorization_url);
                 }
-            });
-        }
+                Err(e) => {
+                    set_connecting.set(false);
+                    if !redirect_if_unauthorized(&e) {
+                        set_error.set(Some(e.user_message()));
+                    }
+                }
+            }
+        });
     };
 
     let on_disconnect_confirmed = move |()| {
@@ -206,10 +215,11 @@ fn MatrixContent() -> impl IntoView {
                                     {(!connected).then(|| view! {
                                         <button
                                             type="button"
-                                            on:click=on_connect.clone()
+                                            on:click=on_connect
+                                            disabled=move || connecting.get()
                                             class="bg-blue-600 text-white rounded px-3 py-2 text-sm font-medium"
                                         >
-                                            "Connect account"
+                                            {move || if connecting.get() { "Redirecting…" } else { "Connect Matrix account" }}
                                         </button>
                                     })}
                                     {connected.then(|| view! {
@@ -222,30 +232,16 @@ fn MatrixContent() -> impl IntoView {
                                         </button>
                                     })}
                                 </div>
+                                {(!connected).then(|| view! {
+                                    <p class="text-gray-500">
+                                        "You will be sent to your homeserver to authorize the bot account, "
+                                        "then returned here."
+                                    </p>
+                                })}
                             </div>
                         }.into_any()
                     }
                 }}
-
-                {move || grant.get().map(|g| view! {
-                    <div class="mt-4 rounded-md bg-blue-50 border border-blue-200 p-4 text-sm" role="status">
-                        <p class="mb-2">"Open this address and enter the code to authorize Botrix:"</p>
-                        <div class="flex items-center gap-2 mb-2">
-                            <a href=g.verification_uri.clone() target="_blank" rel="noopener noreferrer" class="underline break-all">
-                                {g.verification_uri.clone()}
-                            </a>
-                            <CopyButton text=g.verification_uri.clone() />
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <code class="text-lg font-semibold">{g.user_code.clone()}</code>
-                            <CopyButton text=g.user_code.clone() />
-                        </div>
-                        <p class="mt-2 text-gray-600">
-                            "Waiting for authorization… expires in about "
-                            {g.expires_in / 60} " minutes."
-                        </p>
-                    </div>
-                })}
             </section>
 
             // Recovery key prompt: only when connected without E2EE bootstrapped.
@@ -361,54 +357,5 @@ fn MatrixContent() -> impl IntoView {
                 on_cancel=Callback::new(move |()| set_confirm_disconnect.set(false))
             />
         </div>
-    }
-}
-
-/// Poll the device-grant endpoint until it resolves or the page is left.
-async fn poll_until_done(
-    alive: Arc<AtomicBool>,
-    set_grant: WriteSignal<Option<ConnectResponse>>,
-    set_error: WriteSignal<Option<String>>,
-    set_notice: WriteSignal<Option<String>>,
-    set_reload: WriteSignal<u32>,
-) {
-    while alive.load(Ordering::Relaxed) {
-        gloo_timers::future::TimeoutFuture::new(POLL_INTERVAL_MS).await;
-        if !alive.load(Ordering::Relaxed) {
-            return;
-        }
-        match api::get::<ConnectPollResponse>("/api/v1/matrix/connect/poll").await {
-            Ok(resp) => match resp.status {
-                ConnectPollStatus::Pending => continue,
-                ConnectPollStatus::Connected => {
-                    set_grant.set(None);
-                    set_notice.set(Some("Connected.".to_owned()));
-                    set_reload.update(|n| *n += 1);
-                    return;
-                }
-                ConnectPollStatus::Expired => {
-                    set_grant.set(None);
-                    set_error.set(Some(
-                        "The authorization code expired. Try again.".to_owned(),
-                    ));
-                    return;
-                }
-                ConnectPollStatus::Error => {
-                    set_grant.set(None);
-                    set_error.set(Some(
-                        resp.message
-                            .unwrap_or_else(|| "Authorization failed.".to_owned()),
-                    ));
-                    return;
-                }
-            },
-            Err(e) => {
-                set_grant.set(None);
-                if !redirect_if_unauthorized(&e) {
-                    set_error.set(Some(e.user_message()));
-                }
-                return;
-            }
-        }
     }
 }

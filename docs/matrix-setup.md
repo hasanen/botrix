@@ -6,7 +6,7 @@ nav_order: 4
 
 # Matrix setup
 
-> **Status:** the account-connection flow and the encryption recovery-key step below describe the intended behavior. They are **not implemented yet**: the **Connect** and **Recovery key** actions in the UI currently report that they are unavailable, and notifications stay queued. Destinations, invitations, test messages and disconnecting are implemented.
+> **Status:** account connection (the redirect login below), destinations, invitations, test messages and disconnecting are implemented. The **encryption recovery-key** step is still a stub: until it lands, Botrix can send to unencrypted rooms but not to end-to-end-encrypted ones.
 
 Botrix connects to Matrix using OAuth 2.0 Device Authorization Grant. Authentication is done through the web UI — you never need to put passwords or tokens in configuration files.
 
@@ -17,11 +17,21 @@ Botrix connects to Matrix using OAuth 2.0 Device Authorization Grant. Authentica
 
 ## Connecting an account
 
+Botrix uses the OAuth 2.0 Authorization Code (redirect) flow:
+
 1. Open the Botrix web UI and go to **Matrix**
 2. Click **Connect Matrix account**
-3. Botrix displays a verification URL and a short user code
-4. Open the URL in a browser and complete authentication for the bot account
-5. Return to Botrix — the connection status updates automatically
+3. Your browser is sent to the homeserver's login page
+4. Log in as the bot account and approve the requested access
+5. The homeserver redirects you back to Botrix, which completes the connection
+
+For the redirect to return to the right place, Botrix must know its own public
+URL. Behind a reverse proxy, set `server.public_url` in the config (e.g.
+`https://botrix.example.com`); the redirect target is
+`{public_url}/api/v1/matrix/callback`. Without a proxy, Botrix derives it from
+the request automatically.
+
+Your homeserver must support [Matrix Authentication Service (MAS)](https://matrix-org.github.io/matrix-authentication-service/) — the redirect login is an OAuth flow, so password-only homeservers are not supported.
 
 ## E2EE setup
 

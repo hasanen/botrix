@@ -94,6 +94,7 @@ async fn test_app() -> (Router, botrix_server::db::Pool) {
             port: 8080,
             // Small limit to test 413 easily.
             max_body_bytes: 64,
+            public_url: None,
         },
     };
 

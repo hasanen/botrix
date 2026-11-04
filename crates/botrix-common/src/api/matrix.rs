@@ -21,39 +21,14 @@ pub struct MatrixStatus {
 
 /// Response body for `POST /api/v1/matrix/connect`.
 ///
-/// The client should display `verification_uri` and `user_code` to the user,
-/// then poll `GET /api/v1/matrix/connect/poll` every few seconds.
+/// Botrix uses the OAuth 2.0 Authorization Code flow. The client should open
+/// `authorization_url` (the homeserver's login page); after the operator logs
+/// in there, the homeserver redirects back to Botrix's callback endpoint,
+/// which completes the login. There is nothing to poll.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectResponse {
-    /// The URL the user must visit to authorize the device.
-    pub verification_uri: String,
-    /// The short code the user must enter at `verification_uri`.
-    pub user_code: String,
-    /// Seconds until the device code expires.
-    pub expires_in: u64,
-}
-
-/// Response body for `GET /api/v1/matrix/connect/poll`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectPollResponse {
-    /// Current polling status.
-    pub status: ConnectPollStatus,
-    /// Human-readable error message, present when `status` is `error`.
-    pub message: Option<String>,
-}
-
-/// Status returned by the OAuth polling endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectPollStatus {
-    /// Authorization is still pending — the user has not yet acted.
-    Pending,
-    /// Authorization succeeded and the Matrix session is active.
-    Connected,
-    /// The device code expired before the user authorized.
-    Expired,
-    /// An error occurred during the authorization flow.
-    Error,
+    /// The homeserver authorization URL to open in the browser.
+    pub authorization_url: String,
 }
 
 /// Request body for `POST /api/v1/matrix/disconnect`.

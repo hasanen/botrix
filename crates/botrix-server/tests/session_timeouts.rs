@@ -63,6 +63,7 @@ async fn test_app() -> (Router, botrix_server::db::Pool) {
             host: "127.0.0.1".to_owned(),
             port: 8080,
             max_body_bytes: 1024,
+            public_url: None,
         },
     };
     let app = botrix_server::server::build_app(pool.clone(), config, SESSION_SECRET, false)

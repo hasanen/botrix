@@ -82,6 +82,7 @@ A map of webhook identifiers to definitions. Each identifier becomes part of the
 | `host` | `0.0.0.0` | Address to bind |
 | `port` | `8080` | Port to listen on |
 | `max_body_bytes` | `262144` | Maximum inbound webhook body size in bytes (256 KiB) |
+| `public_url` | _(derived from request)_ | Public base URL for the Matrix login redirect, e.g. `https://botrix.example.com`. Required behind a reverse proxy. Also settable with `BOTRIX_PUBLIC_URL`. |
 
 ## Environment variables
 
@@ -91,6 +92,7 @@ A map of webhook identifiers to definitions. Each identifier becomes part of the
 | `BOTRIX_CRYPTO_PASSPHRASE` | Yes | Encrypts Matrix crypto state on disk. See note below. |
 | `BOTRIX_CONFIG` | No | Path to config file (default: `/config/config.yaml`) |
 | `BOTRIX_DATA_DIR` | No | Path to data directory (default: `/data`) |
+| `BOTRIX_PUBLIC_URL` | No | Overrides `server.public_url`. The public base URL for the Matrix login redirect. |
 | `BOTRIX_INSECURE_COOKIES` | No | Set to `1` to send session cookies without the `Secure` flag, for trying Botrix over plain HTTP. Leave unset behind HTTPS. |
 | `BOTRIX_FRONTEND_DIR` | No | Serve the web UI from this directory instead of the copy built into the binary. For development. |
 | `RUST_LOG` | No | Log filter. Examples: `info`, `warn`, `botrix=debug`, `botrix=trace`. |
