@@ -73,7 +73,7 @@ fn SessionSettingsCard() -> impl IntoView {
         spawn_local(async move {
             match api::put_csrf::<_, Settings>("/api/v1/settings", &req).await {
                 Ok(_) => set_notice.set(Some(
-                    "Saved. New idle timeout applies after the server restarts.".to_owned(),
+                    "Saved. The new limits apply to all sessions immediately.".to_owned(),
                 )),
                 Err(e) => {
                     if !redirect_if_unauthorized(&e) {

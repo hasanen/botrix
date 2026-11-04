@@ -54,6 +54,11 @@ pub async fn update_settings(
             "idle timeout must not exceed absolute lifetime".to_owned(),
         ));
     }
+    if req.absolute_lifetime_secs > db_settings::MAX_ABSOLUTE_LIFETIME_SECS {
+        return Err(ApiError::BadRequest(
+            "absolute lifetime must not exceed 30 days".to_owned(),
+        ));
+    }
 
     let settings = Settings {
         idle_timeout_secs: req.idle_timeout_secs,

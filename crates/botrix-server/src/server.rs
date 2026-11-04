@@ -10,6 +10,7 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 
 use crate::config::Config;
 use crate::db::session_store::SqliteSessionStore;
+use crate::session;
 use crate::state::AppState;
 
 /// Minimum length of `BOTRIX_SESSION_SECRET` in bytes (§16.4).
@@ -170,14 +171,15 @@ pub async fn build_app_with_matrix(
     // The sessions table is created by our migrations; no store migrate step.
     let session_store = SqliteSessionStore::new(pool.clone());
 
-    let settings = crate::db::settings::get_settings(&pool)?;
-
+    // The configurable idle/absolute limits are enforced per request by
+    // `session::enforce_timeouts` (so changes apply without a restart). The
+    // layer's expiry is only a backstop that must outlive any allowed limit.
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(secure_cookies)
         .with_http_only(true)
         .with_same_site(tower_sessions::cookie::SameSite::Strict)
         .with_expiry(Expiry::OnInactivity(time::Duration::seconds(
-            settings.idle_timeout_secs,
+            crate::db::settings::MAX_ABSOLUTE_LIFETIME_SECS,
         )));
 
     let csrf_key = Key::from(&derive_key_material(session_secret));
@@ -196,7 +198,10 @@ pub async fn build_app_with_matrix(
         matrix_client,
     };
 
-    Ok(build_router(state).layer(session_layer))
+    // Layer order matters: the timeout check runs inside the session layer
+    // (it needs the `Session`) but before any handler.
+    let timeouts = axum::middleware::from_fn_with_state(state.clone(), session::enforce_timeouts);
+    Ok(build_router(state).layer(timeouts).layer(session_layer))
 }
 
 /// Assemble the API router with the given application state.

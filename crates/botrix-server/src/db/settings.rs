@@ -8,6 +8,12 @@ use super::{now_unix, DbError, Pool};
 pub const DEFAULT_IDLE_TIMEOUT_SECS: i64 = 3600;
 /// Default absolute session lifetime in seconds (24 hours).
 pub const DEFAULT_ABSOLUTE_LIFETIME_SECS: i64 = 86_400;
+/// Largest absolute session lifetime accepted (30 days).
+///
+/// Also the backstop expiry given to the `tower-sessions` layer, which must
+/// outlive any configurable limit so [`crate::session::enforce_timeouts`] is
+/// what decides when a session ends.
+pub const MAX_ABSOLUTE_LIFETIME_SECS: i64 = 30 * 86_400;
 
 /// Read the session settings, inserting the default singleton row if absent.
 pub fn get_settings(pool: &Pool) -> Result<Settings, DbError> {
