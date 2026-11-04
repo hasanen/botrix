@@ -96,3 +96,79 @@ button:disabled {
 
 .hover\:bg-blue-700:hover { background-color: #1d4ed8; }
 .hover\:bg-gray-50:hover { background-color: #f9fafb; }
+
+/* Added for Phase 8 pages: dashboard, matrix, webhooks, logs, settings.
+ * Same approach as above — a minimal hand-rolled subset of Tailwind's
+ * utility classes, not the full Tailwind build. */
+
+/* Layout */
+.inline-flex { display: inline-flex; }
+.fixed { position: fixed; }
+.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+.z-50 { z-index: 50; }
+.gap-2 { gap: 0.5rem; }
+.gap-3 { gap: 0.75rem; }
+.gap-6 { gap: 1.5rem; }
+.justify-end { justify-content: flex-end; }
+.items-end { align-items: flex-end; }
+.space-y-1 > * + * { margin-top: 0.25rem; }
+.space-y-3 > * + * { margin-top: 0.75rem; }
+.space-y-6 > * + * { margin-top: 1.5rem; }
+.max-w-md { max-width: 28rem; }
+.max-w-lg { max-width: 32rem; }
+.mx-4 { margin-left: 1rem; margin-right: 1rem; }
+.mt-2 { margin-top: 0.5rem; }
+.mt-4 { margin-top: 1rem; }
+.w-6 { width: 1.5rem; }
+.h-6 { height: 1.5rem; }
+.border-2 { border-width: 2px; border-style: solid; }
+
+/* Tables */
+table { border-collapse: collapse; }
+th, td { text-align: left; }
+.nowrap { white-space: nowrap; }
+
+/* Spacing additions */
+.p-4 { padding: 1rem; }
+.px-4 { padding-left: 1rem; padding-right: 1rem; }
+.py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+.pr-4 { padding-right: 1rem; }
+
+/* Colors / surfaces */
+.bg-black\/50 { background-color: rgba(0, 0, 0, 0.5); }
+.bg-blue-50 { background-color: #eff6ff; }
+.bg-green-50 { background-color: #f0fdf4; }
+.bg-red-600 { background-color: #dc2626; }
+.text-green-800 { color: #166534; }
+.text-gray-900 { color: #111827; }
+.border-blue-200 { border-color: #bfdbfe; }
+.border-green-200 { border-color: #bbf7d0; }
+.rounded-full { border-radius: 9999px; }
+.shadow-xl { box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+
+/* Typography */
+.text-xs { font-size: 0.75rem; }
+.text-left { text-align: left; }
+.break-all { word-break: break-all; }
+.underline { text-decoration: underline; }
+
+/* Interaction */
+.hover\:bg-red-700:hover { background-color: #b91c1c; }
+.focus\:outline-none:focus { outline: none; }
+.focus\:ring-2:focus { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); }
+.focus\:ring-blue-500:focus { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5); }
+.transition-colors { transition: background-color 150ms, color 150ms, border-color 150ms; }
+.disabled\:opacity-40:disabled { opacity: 0.4; }
+.disabled\:opacity-50:disabled { opacity: 0.5; }
+.disabled\:cursor-not-allowed:disabled { cursor: not-allowed; }
+
+/* Animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.animate-spin { animation: spin 1s linear infinite; }
+.border-blue-600 { border-color: #2563eb; }
+.border-t-transparent { border-top-color: transparent; }
+
+/* Navigation */
+.nav-link { color: #4b5563; text-decoration: none; }
+.nav-link:hover { color: #111827; }
+.nav-link[aria-current="page"] { color: #111827; font-weight: 600; }
