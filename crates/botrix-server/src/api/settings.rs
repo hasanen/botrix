@@ -7,7 +7,9 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::Json;
 use axum_csrf::CsrfToken;
-use botrix_common::api::settings::{ChangePasswordRequest, Settings, UpdateSettingsRequest};
+use botrix_common::api::settings::{
+    AppInfo, ChangePasswordRequest, Settings, UpdateSettingsRequest,
+};
 use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
@@ -59,6 +61,18 @@ pub async fn update_settings(
     };
     db_settings::update_settings(&state.pool, &settings)?;
     Ok(Json(settings))
+}
+
+/// `GET /api/v1/settings/info` — application version and build info.
+///
+/// The build hash is taken from the `BOTRIX_BUILD_HASH` environment variable
+/// at compile time and is `null` when the binary was built without it.
+pub async fn app_info(session: Session) -> Result<Json<AppInfo>, ApiError> {
+    require_user(&session).await?;
+    Ok(Json(AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        build_hash: option_env!("BOTRIX_BUILD_HASH").map(str::to_owned),
+    }))
 }
 
 /// `POST /api/v1/settings/password` — change the admin password.

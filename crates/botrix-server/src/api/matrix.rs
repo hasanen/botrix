@@ -18,7 +18,7 @@
 //! flow and §19.2/§19.4 for the open risks that gate this work. The `status`,
 //! `rooms`, `disconnect`, and `test-message` handlers are fully implemented.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use axum_csrf::CsrfToken;
@@ -195,6 +195,52 @@ pub async fn disconnect(
     db_matrix::clear_session(&state.pool)?;
     tracing::info!("Matrix session disconnected by admin");
     Ok(Json(serde_json::json!({ "status": "disconnected" })))
+}
+
+/// `POST /api/v1/matrix/rooms/:name/join` — accept a room invitation (§9.6).
+///
+/// `:name` is the logical destination name from config. Returns 400 for an
+/// unknown destination, 409 when there is no live Matrix client or the room
+/// cannot be found/joined, and 200 on success.
+pub async fn join_room(
+    State(state): State<AppState>,
+    session: Session,
+    token: CsrfToken,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_user(&session).await?;
+    verify_csrf(&token, &headers)?;
+
+    let dest = state
+        .config
+        .matrix
+        .destinations
+        .get(&name)
+        .ok_or_else(|| ApiError::BadRequest(format!("unknown destination '{name}'")))?;
+
+    let client = state
+        .matrix_client
+        .as_ref()
+        .ok_or_else(|| ApiError::Conflict("no active Matrix session".to_owned()))?;
+
+    let room_id = matrix_sdk::ruma::RoomId::parse(&dest.room_id)
+        .map_err(|e| ApiError::BadRequest(format!("invalid room ID '{}': {e}", dest.room_id)))?;
+
+    let room = client.get_room(&room_id).ok_or_else(|| {
+        ApiError::Conflict(format!(
+            "room '{}' is not known to the client",
+            dest.room_id
+        ))
+    })?;
+
+    room.join().await.map_err(|e| {
+        tracing::error!(error = %e, room_id = %dest.room_id, "failed to join room");
+        // Details stay in the server log; don't leak SDK internals to the UI.
+        ApiError::Conflict("failed to join room; see server logs".to_owned())
+    })?;
+
+    Ok(Json(serde_json::json!({ "status": "joined" })))
 }
 
 /// `POST /api/v1/matrix/test-message` — send a test message to a destination.

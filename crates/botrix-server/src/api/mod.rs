@@ -8,5 +8,7 @@ pub mod csrf;
 pub mod error;
 pub mod logs;
 pub mod matrix;
+pub mod notifications;
+pub mod pagination;
 pub mod settings;
 pub mod webhooks;

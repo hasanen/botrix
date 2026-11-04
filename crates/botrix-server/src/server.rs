@@ -201,7 +201,9 @@ pub async fn build_app_with_matrix(
 
 /// Assemble the API router with the given application state.
 fn build_router(state: AppState) -> Router {
-    use crate::api::{auth, matrix as api_matrix, settings, webhooks as api_webhooks};
+    use crate::api::{
+        auth, logs, matrix as api_matrix, notifications, settings, webhooks as api_webhooks,
+    };
     use crate::webhooks::handler as webhook_handler;
     use axum::extract::DefaultBodyLimit;
 
@@ -231,6 +233,10 @@ fn build_router(state: AppState) -> Router {
             get(settings::get_settings).put(settings::update_settings),
         )
         .route("/api/v1/settings/password", post(settings::change_password))
+        .route("/api/v1/settings/info", get(settings::app_info))
+        // History
+        .route("/api/v1/notifications", get(notifications::list))
+        .route("/api/v1/logs", get(logs::list))
         // Webhook management (authenticated)
         .route("/api/v1/webhooks", get(api_webhooks::list))
         .route(
@@ -240,6 +246,10 @@ fn build_router(state: AppState) -> Router {
         // Matrix integration (authenticated)
         .route("/api/v1/matrix/status", get(api_matrix::status))
         .route("/api/v1/matrix/rooms", get(api_matrix::rooms))
+        .route(
+            "/api/v1/matrix/rooms/{name}/join",
+            post(api_matrix::join_room),
+        )
         .route("/api/v1/matrix/connect", post(api_matrix::connect))
         .route("/api/v1/matrix/connect/poll", get(api_matrix::connect_poll))
         .route("/api/v1/matrix/disconnect", post(api_matrix::disconnect))

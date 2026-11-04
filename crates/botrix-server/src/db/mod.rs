@@ -7,6 +7,7 @@
 //! queries on a local file).
 
 pub mod auth;
+pub mod history;
 pub mod maintenance;
 pub mod matrix;
 pub mod migrate;
@@ -30,6 +31,14 @@ pub enum DbError {
     /// A migration failed.
     #[error("migration error: {0}")]
     Migrate(String),
+    /// A stored value is not one of the values the application understands.
+    #[error("unexpected value '{value}' in column {column}")]
+    InvalidValue {
+        /// Fully qualified column name (`table.column`).
+        column: &'static str,
+        /// The unexpected stored value.
+        value: String,
+    },
 }
 
 /// Shared connection pool type.
@@ -67,6 +76,21 @@ pub fn init(db_path: &str) -> Result<Pool, DbError> {
 
     tracing::info!(db_path, "database initialized");
     Ok(pool)
+}
+
+/// Open an existing application database read-only.
+///
+/// Unlike [`init`], this applies no migrations and performs no crash recovery,
+/// so it is safe to use against a database a running server is using (e.g. for
+/// `botrix status`). Fails if the file does not exist.
+pub fn open_read_only(db_path: &str) -> Result<Pool, DbError> {
+    use rusqlite::OpenFlags;
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    // Open once directly so a missing/unreadable file fails immediately
+    // instead of r2d2 retrying until its connection timeout.
+    rusqlite::Connection::open_with_flags(db_path, flags)?;
+    let manager = SqliteConnectionManager::file(db_path).with_flags(flags);
+    Ok(Pool::new(manager)?)
 }
 
 /// Current Unix timestamp in seconds.
