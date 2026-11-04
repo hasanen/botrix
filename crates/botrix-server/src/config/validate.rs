@@ -15,7 +15,7 @@ pub enum ValidationError {
 
     /// A destination `room_id` does not match the required format.
     #[error(
-        "destinations.{name}.room_id has invalid format '{room_id}' — expected '!<id>:<server>'"
+        "destinations.{name}.room_id has invalid format '{room_id}' — a room ID must start with '!' (e.g. '!abc:example.com' or '!abc' for newer rooms); a '#alias:server' is not a room ID"
     )]
     InvalidRoomId {
         /// Destination name whose room ID is invalid.
@@ -87,8 +87,12 @@ fn validate_homeserver(homeserver: &str) -> Result<(), ValidationError> {
 }
 
 fn validate_room_id(name: &str, room_id: &str) -> Result<(), ValidationError> {
-    // Room IDs must match `!<localpart>:<server>` — starts with '!', contains ':'
-    if room_id.starts_with('!') && room_id.contains(':') {
+    // Match Matrix itself (ruma's `room_id::validate`): a room ID is the `!`
+    // sigil followed by a non-empty opaque localpart. The `:server` suffix is
+    // only present on v1 room IDs — newer rooms (format v2 / MSC4291) have
+    // none — so it must NOT be required. Reject a lone sigil and NUL bytes.
+    let ok = room_id.starts_with('!') && room_id.len() > 1 && !room_id.contains('\0');
+    if ok {
         Ok(())
     } else {
         Err(ValidationError::InvalidRoomId {
@@ -175,9 +179,49 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_room_id_no_colon() {
+    fn accepts_v1_room_id_with_server() {
         let mut cfg = valid_config();
-        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id = "!abc123".to_owned();
+        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id =
+            "!abc123:example.com".to_owned();
+        assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn accepts_room_id_without_server_part() {
+        // Current Matrix room IDs (format v2 / MSC4291) have no `:server`
+        // suffix; ruma's own validation accepts them, so Botrix must too.
+        let mut cfg = valid_config();
+        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id =
+            "!Pmc2TacQ9099q3Gc5s-C8FDLrd1Sd7vyKPp7UgzYz1Q".to_owned();
+        assert!(validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn rejects_empty_room_id() {
+        let mut cfg = valid_config();
+        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id = String::new();
+        assert!(matches!(
+            validate(&cfg),
+            Err(ValidationError::InvalidRoomId { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_room_id_that_is_only_the_sigil() {
+        let mut cfg = valid_config();
+        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id = "!".to_owned();
+        assert!(matches!(
+            validate(&cfg),
+            Err(ValidationError::InvalidRoomId { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_room_alias_used_as_room_id() {
+        // A `#alias:server` is not a room ID; catch the common mistake.
+        let mut cfg = valid_config();
+        cfg.matrix.destinations.get_mut("alerts").unwrap().room_id =
+            "#general:example.com".to_owned();
         assert!(matches!(
             validate(&cfg),
             Err(ValidationError::InvalidRoomId { .. })
