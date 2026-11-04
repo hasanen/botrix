@@ -215,20 +215,31 @@ pub async fn build_app_with_matrix(
     // The configurable idle/absolute limits are enforced per request by
     // `session::enforce_timeouts` (so changes apply without a restart). The
     // layer's expiry is only a backstop that must outlive any allowed limit.
+    // SameSite=Lax (not Strict): the Matrix OAuth login redirects the browser
+    // back from the homeserver to GET /api/v1/matrix/callback, which is a
+    // cross-site top-level navigation. A Strict cookie would be withheld there,
+    // so the callback could not see the admin session. Lax still sends the
+    // cookie on top-level GET navigations while withholding it on cross-site
+    // subrequests and non-GET requests; combined with HttpOnly and the CSRF
+    // token required on every mutating request, this keeps CSRF protection.
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(secure_cookies)
         .with_http_only(true)
-        .with_same_site(tower_sessions::cookie::SameSite::Strict)
+        .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::seconds(
             crate::db::settings::MAX_ABSOLUTE_LIFETIME_SECS,
         )));
 
     let csrf_key = Key::from(&derive_key_material(session_secret));
+    // Lax to match the session cookie (see above): survives the OAuth redirect
+    // without rotating mid-flow. The double-submit CSRF check does not require
+    // Strict — protection comes from the token echoed in the X-CSRF-Token
+    // header, which a cross-site caller cannot read.
     let csrf_config = CsrfConfig::default()
         .with_cookie_name("botrix_csrf")
         .with_http_only(true)
         .with_secure(secure_cookies)
-        .with_cookie_same_site(SameSite::Strict)
+        .with_cookie_same_site(SameSite::Lax)
         .with_key(Some(csrf_key));
 
     let state = AppState {
