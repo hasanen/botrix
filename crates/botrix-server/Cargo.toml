@@ -31,7 +31,6 @@ tower-sessions = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 constant_time_eq = { workspace = true }
-validator = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

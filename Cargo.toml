@@ -42,7 +42,6 @@ tower-sessions = "0.14"
 rand = "0.8"
 sha2 = "0.10"
 constant_time_eq = "0.3"
-validator = { version = "0.18", features = ["derive"] }
 clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
