@@ -14,7 +14,7 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 
 ## Project status
 
-Botrix is under active development. Webhook intake, templating, the delivery queue with retries, the admin web UI, and the container image all work. **Connecting a Matrix account (OAuth device login) and E2EE recovery-key setup are not implemented yet**, so notifications are queued and retried but cannot be delivered to Matrix until that lands.
+Botrix is at its first release (v0.1.0). Working end to end: webhook intake and templating, the delivery queue with retries, the admin web UI, connecting a Matrix account over OAuth, end-to-end-encrypted room delivery (after a one-time recovery-key import), and the container image. Connecting a Matrix account needs a homeserver running [Matrix Authentication Service](https://matrix-org.github.io/matrix-authentication-service/) and Botrix reachable at an HTTPS URL — see the [Matrix setup guide](https://hasanen.github.io/botrix/matrix-setup).
 
 ## Quick start
 

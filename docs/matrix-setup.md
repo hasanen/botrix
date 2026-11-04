@@ -26,12 +26,48 @@ Botrix uses the OAuth 2.0 Authorization Code (redirect) flow:
 5. The homeserver redirects you back to Botrix, which completes the connection
 
 For the redirect to return to the right place, Botrix must know its own public
-URL. Behind a reverse proxy, set `server.public_url` in the config (e.g.
-`https://botrix.example.com`); the redirect target is
-`{public_url}/api/v1/matrix/callback`. Without a proxy, Botrix derives it from
-the request automatically.
+URL. Set `server.public_url` (or `BOTRIX_PUBLIC_URL`) to where Botrix is
+reachable, e.g. `https://botrix.example.com`; the redirect target is
+`{public_url}/api/v1/matrix/callback`.
 
 Your homeserver must support [Matrix Authentication Service (MAS)](https://matrix-org.github.io/matrix-authentication-service/) — the redirect login is an OAuth flow, so password-only homeservers are not supported.
+
+### Requirements for `public_url`
+
+MAS validates the URL Botrix registers, and most deployments enforce:
+
+- **HTTPS.** Plain `http://` is rejected. Put Botrix behind a TLS-terminating
+  reverse proxy (Caddy, nginx, Traefik).
+- **A real hostname or IP, not loopback.** `localhost` and `127.0.0.1` are
+  rejected even over HTTPS. Use a routable hostname (`https://botrix.example.com`),
+  a LAN IP (`https://10.0.0.5`), or a local name you map in `/etc/hosts`
+  (`https://botrix.local`). Botrix warns at startup if `public_url` is loopback.
+
+You must reach the Botrix UI at the **same** URL as `public_url`, so your admin
+login cookie is valid when the homeserver redirects back to the callback.
+
+Minimal local setup with Caddy and an `/etc/hosts` entry:
+
+```
+# /etc/hosts
+127.0.0.1  botrix.local
+```
+
+```
+# Caddyfile — Caddy issues a trusted local certificate automatically
+botrix.local {
+    reverse_proxy localhost:8080
+}
+```
+
+```yaml
+# config.yaml
+server:
+  public_url: "https://botrix.local"
+```
+
+Then open `https://botrix.local` and connect. (With HTTPS in place you do not
+need `BOTRIX_INSECURE_COOKIES`.)
 
 ## E2EE setup
 

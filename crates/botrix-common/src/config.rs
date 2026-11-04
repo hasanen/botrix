@@ -96,6 +96,31 @@ pub fn oauth_redirect_uri_for_origin(origin: &str) -> String {
     format!("{}{}", origin.trim_end_matches('/'), OAUTH_CALLBACK_PATH)
 }
 
+/// Whether a URL's host is a loopback address (`localhost`, `127.0.0.1`, `::1`).
+///
+/// Homeservers running Matrix Authentication Service reject a loopback host in
+/// the OAuth client/redirect URI, so a loopback `public_url` makes the Matrix
+/// connect flow fail. The server warns about this at startup.
+pub fn is_loopback_url(url: &str) -> bool {
+    // Strip scheme and any path to get the authority (host[:port]).
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let authority = after_scheme.split('/').next().unwrap_or("");
+
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        // Bracketed IPv6: `[::1]:8081` → the part inside the brackets.
+        rest.split(']').next().unwrap_or("")
+    } else if authority.matches(':').count() >= 2 {
+        // Bare IPv6 with no brackets (no port can be attached this way).
+        authority
+    } else {
+        // host or host:port
+        authority.split(':').next().unwrap_or("")
+    };
+
+    let host = host.to_ascii_lowercase();
+    host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -163,5 +188,32 @@ mod tests {
             oauth_redirect_uri_for_origin("http://localhost:8080"),
             "http://localhost:8080/api/v1/matrix/callback"
         );
+    }
+
+    #[test]
+    fn loopback_urls_are_detected() {
+        for url in [
+            "http://localhost:8080",
+            "https://localhost",
+            "http://127.0.0.1:8081",
+            "https://127.0.0.1/api/v1/matrix/callback",
+            "http://[::1]:8080",
+            "https://LOCALHOST:9000",
+        ] {
+            assert!(is_loopback_url(url), "{url} should be loopback");
+        }
+    }
+
+    #[test]
+    fn non_loopback_urls_are_not_flagged() {
+        for url in [
+            "https://botrix.example.com",
+            "https://botrix.local",
+            "https://10.50.10.28:8081",
+            "https://192.168.1.5",
+            "http://matrix.internal:8080/path",
+        ] {
+            assert!(!is_loopback_url(url), "{url} should not be loopback");
+        }
     }
 }

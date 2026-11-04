@@ -59,6 +59,20 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
     validate_session_secret(&session_secret)?;
     let _crypto_passphrase = require_env("BOTRIX_CRYPTO_PASSPHRASE")?;
 
+    // A loopback public_url cannot complete the Matrix OAuth login: homeservers
+    // running MAS reject localhost/127.0.0.1 in the client/redirect URI. Warn
+    // rather than fail, since other flows work and some homeservers may allow
+    // it; the connect endpoint also reports a clear error if it is rejected.
+    if let Some(url) = &config.server.public_url {
+        if botrix_common::config::is_loopback_url(url) {
+            tracing::warn!(
+                public_url = %url,
+                "server.public_url uses a loopback host; most homeservers reject it for Matrix \
+                 login — use a real hostname or IP reachable over HTTPS"
+            );
+        }
+    }
+
     // Initialize the application database (runs migrations and crash recovery).
     let db_path = format!("{data_dir}/botrix.db");
     let pool = crate::db::init(&db_path)?;
