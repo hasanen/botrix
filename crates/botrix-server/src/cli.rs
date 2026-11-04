@@ -12,6 +12,9 @@ pub enum CliError {
     /// Server startup failed.
     #[error("server error: {0}")]
     Server(#[from] crate::server::ServerError),
+    /// The application database could not be read.
+    #[error("database error: {0}")]
+    Database(#[from] crate::db::DbError),
 }
 
 /// Botrix — Matrix notification gateway.
@@ -30,6 +33,18 @@ pub enum Commands {
     Serve(ServeArgs),
     /// Configuration utilities.
     Config(ConfigArgs),
+    /// Report current Matrix connection and delivery queue status.
+    Status(StatusArgs),
+}
+
+/// Arguments for the `status` subcommand.
+#[derive(Debug, Parser)]
+pub struct StatusArgs {
+    /// Path to the data directory.
+    ///
+    /// Defaults to the value of `BOTRIX_DATA_DIR`, or `/data`.
+    #[arg(long, env = "BOTRIX_DATA_DIR", default_value = "/data")]
+    pub data_dir: String,
 }
 
 /// Arguments for the `serve` subcommand.
@@ -75,6 +90,15 @@ pub struct ValidateArgs {
 pub async fn serve(args: ServeArgs) -> Result<(), CliError> {
     let config = crate::config::load(&args.config)?;
     crate::server::run(config, &args.data_dir).await?;
+    Ok(())
+}
+
+/// Dispatch for `botrix status`.
+pub fn status(args: StatusArgs) -> Result<(), CliError> {
+    let db_path = format!("{}/botrix.db", args.data_dir);
+    let pool = crate::db::open_read_only(&db_path)?;
+    let report = crate::status::StatusReport::load(&pool)?;
+    println!("{report}");
     Ok(())
 }
 
