@@ -50,6 +50,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
 
+  container-build:
+    name: Container image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Build only (never pushed from PRs). Catches Containerfile breakage such
+      # as a builder/runtime glibc mismatch before a release tag does.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   wasm-check:
     name: WASM build check
     runs-on: ubuntu-latest
