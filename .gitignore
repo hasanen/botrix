@@ -30,3 +30,6 @@ dev-config/
 
 # Internal planning docs
 docs/implementation-plan.md
+
+# Scratch dirs created by scripts/container-test.sh
+.container-test.*

@@ -51,7 +51,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   container-build:
-    name: Container image build
+    name: Container image build and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,8 +64,14 @@ jobs:
           context: .
           file: Containerfile
           push: false
+          load: true
+          tags: botrix:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Test image
+        env:
+          CONTAINER_ENGINE: docker
+        run: scripts/container-test.sh botrix:test
 
   wasm-check:
     name: WASM build check

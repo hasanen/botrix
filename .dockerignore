@@ -25,3 +25,7 @@ dev-config
 # Documentation is not needed to build the binary
 docs
 *.md
+
+# Scratch dirs created by scripts/container-test.sh
+.container-test.*
+scripts

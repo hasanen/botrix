@@ -20,6 +20,15 @@ services:
       - BOTRIX_INSECURE_COOKIES=1
       - RUST_LOG=info
     restart: unless-stopped
+    # Hardening (plan §16.9). Botrix only writes to /data, so it runs fine with
+    # no capabilities and a read-only root filesystem.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     healthcheck:
       test: ["CMD", "botrix", "healthcheck"]
       interval: 30s
