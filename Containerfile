@@ -9,8 +9,33 @@ ARG DEBIAN_RELEASE=trixie
 # ── Stage 1: Build the WASM frontend ─────────────────────────────────────────
 FROM rust:1-slim-${DEBIAN_RELEASE} AS frontend-builder
 WORKDIR /build
-RUN rustup target add wasm32-unknown-unknown \
-    && cargo install trunk --locked
+RUN rustup target add wasm32-unknown-unknown
+
+# Trunk is installed from its pinned, checksum-verified release binary instead
+# of `cargo install` (which compiled it from source: ~4.5 minutes per cold
+# build, and an unpinned version). To upgrade, bump TRUNK_VERSION and both
+# checksums (the .sha256 files published with the release, which also match
+# the digest GitHub shows for each asset). Static musl builds are used so they
+# do not depend on the image's glibc.
+ARG TARGETARCH
+ARG TRUNK_VERSION=0.22.1
+ARG TRUNK_SHA256_AMD64=a1fe5cd6b053f5a76f66b598d296022a7f06f56def6013cc16cd6897d53f5363
+ARG TRUNK_SHA256_ARM64=8c84a939aaf48bbdac2d78195c932adb319e610fb2cbf791bae07b2660cf3e46
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) arch=x86_64;  sha="${TRUNK_SHA256_AMD64}" ;; \
+      arm64) arch=aarch64; sha="${TRUNK_SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    curl --proto '=https' --tlsv1.2 -fsSL -o /tmp/trunk.tar.gz \
+      "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-${arch}-unknown-linux-musl.tar.gz"; \
+    echo "${sha}  /tmp/trunk.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/trunk.tar.gz -C /usr/local/bin trunk; \
+    rm -f /tmp/trunk.tar.gz; \
+    rm -rf /var/lib/apt/lists/*; \
+    trunk --version
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # Only the crates the frontend depends on are copied, and the server is dropped
 # from this stage's workspace, so server-only changes do not invalidate this
