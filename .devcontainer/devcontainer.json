@@ -3,6 +3,7 @@
   "image": "mcr.microsoft.com/devcontainers/rust:1",
   "remoteUser": "vscode",
   "updateRemoteUserUID": true,
+  "runArgs": ["-p", "${localEnv:DEV_PORT:8080}:8080"],
   "containerEnv": {
     "GIT_EDITOR": "vim"
   },
