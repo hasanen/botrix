@@ -53,6 +53,8 @@ jobs:
   container-build:
     name: Container image build and test
     runs-on: ubuntu-latest
+    # Only build the image once every other check has passed.
+    needs: [fmt, clippy, test, deny, wasm-check]
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
