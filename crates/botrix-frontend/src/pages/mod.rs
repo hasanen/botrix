@@ -6,4 +6,5 @@ pub mod logs;
 pub mod matrix;
 pub mod settings;
 pub mod setup;
+pub mod triggers;
 pub mod webhooks;

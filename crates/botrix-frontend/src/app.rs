@@ -8,7 +8,7 @@ use leptos_router::{
 
 use crate::pages::{
     dashboard::DashboardPage, login::LoginPage, logs::LogsPage, matrix::MatrixPage,
-    settings::SettingsPage, setup::SetupPage, webhooks::WebhooksPage,
+    settings::SettingsPage, setup::SetupPage, triggers::TriggersPage, webhooks::WebhooksPage,
 };
 
 /// Root component for the Botrix SPA.
@@ -22,6 +22,7 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/") view=DashboardPage />
                 <Route path=path!("/matrix") view=MatrixPage />
                 <Route path=path!("/webhooks") view=WebhooksPage />
+                <Route path=path!("/triggers") view=TriggersPage />
                 <Route path=path!("/logs") view=LogsPage />
                 <Route path=path!("/settings") view=SettingsPage />
             </Routes>
