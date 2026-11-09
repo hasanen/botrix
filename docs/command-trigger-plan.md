@@ -421,7 +421,7 @@ recorded here per the dependency-review rule.
   - Demo: `handle_command` produces correct replies and log rows per branch;
     `cargo build` confirms registration in the sync path.
 
-- [ ] **Task 8: REST API for triggers + access profiles (TDD).** DTOs in
+- [x] **Task 8: REST API for triggers + access profiles (TDD).** DTOs in
   `botrix-common/src/api/triggers.rs`; handlers in `api/triggers.rs` +
   `api/access_profiles.rs` using `require_user` + `verify_csrf` + `ApiError`;
   routes in `server.rs::build_router` inside the authenticated group. `test`

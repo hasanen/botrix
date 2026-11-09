@@ -77,6 +77,11 @@ impl MatrixHandle {
         self.sender.clone()
     }
 
+    /// The shared command-handling dependencies (pool, passphrase, webhook caller).
+    pub fn command_ctx(&self) -> &Arc<HandlerContext> {
+        &self.command_ctx
+    }
+
     /// The configured destination map.
     pub fn destinations(&self) -> &HashMap<String, String> {
         &self.destinations

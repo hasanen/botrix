@@ -18,6 +18,9 @@ pub enum ApiError {
     /// The request conflicts with current state (e.g. setup already done).
     #[error("{0}")]
     Conflict(String),
+    /// The requested resource does not exist.
+    #[error("{0}")]
+    NotFound(String),
     /// The request body failed validation.
     #[error("{0}")]
     BadRequest(String),
@@ -43,6 +46,7 @@ impl IntoResponse for ApiError {
             ApiError::CsrfRejected => StatusCode::FORBIDDEN,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::Upstream(_) => StatusCode::BAD_GATEWAY,
         };
@@ -96,5 +100,25 @@ impl From<crate::matrix::MatrixError> for ApiError {
 impl From<tower_sessions::session::Error> for ApiError {
     fn from(_: tower_sessions::session::Error) -> Self {
         ApiError::Internal
+    }
+}
+
+impl From<crate::db::triggers::TriggerError> for ApiError {
+    fn from(err: crate::db::triggers::TriggerError) -> Self {
+        use crate::db::triggers::TriggerError;
+        match err {
+            TriggerError::DuplicateCommand(_) => ApiError::Conflict(err.to_string()),
+            TriggerError::Database(_) | TriggerError::Json(_) => ApiError::Internal,
+        }
+    }
+}
+
+impl From<crate::db::access_profiles::AccessProfileError> for ApiError {
+    fn from(err: crate::db::access_profiles::AccessProfileError) -> Self {
+        use crate::db::access_profiles::AccessProfileError;
+        match err {
+            AccessProfileError::DuplicateName(_) => ApiError::Conflict(err.to_string()),
+            AccessProfileError::Database(_) | AccessProfileError::Json(_) => ApiError::Internal,
+        }
     }
 }

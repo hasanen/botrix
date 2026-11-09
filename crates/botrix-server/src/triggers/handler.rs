@@ -103,7 +103,16 @@ pub async fn handle_command(
         return REPLY_UNAUTHORIZED.to_owned();
     }
 
-    let request = match build_request(ctx, &trigger, parsed, msg) {
+    let payload = CommandPayload {
+        command: parsed.command.clone(),
+        arguments: parsed.arguments.clone(),
+        args: parsed.args.clone(),
+        raw_message: msg.raw_message.clone(),
+        sender: msg.sender.clone(),
+        room_id: msg.room_id.clone(),
+        event_id: msg.event_id.clone(),
+    };
+    let request = match build_request(ctx, &trigger, &payload) {
         Ok(r) => r,
         Err(e) => {
             log(LogLevel::Error, "command setup failed", Some(&e));
@@ -147,11 +156,10 @@ fn load_profile(pool: &Pool, trigger: &CommandTrigger) -> Result<Option<AccessPr
 /// Decrypts secrets, resolves header placeholders, and builds the request.
 ///
 /// Errors are descriptions safe to log (secret names at most, never values).
-fn build_request(
+pub(crate) fn build_request(
     ctx: &HandlerContext,
     trigger: &CommandTrigger,
-    parsed: &ParsedCommand,
-    msg: &IncomingMessage,
+    payload: &CommandPayload,
 ) -> Result<WebhookRequest, String> {
     let mut secrets = HashMap::new();
     for s in triggers::list_secrets(&ctx.pool, trigger.id).map_err(|e| e.to_string())? {
@@ -166,16 +174,7 @@ fn build_request(
         headers.push((h.name, value));
     }
 
-    let payload = CommandPayload {
-        command: parsed.command.clone(),
-        arguments: parsed.arguments.clone(),
-        args: parsed.args.clone(),
-        raw_message: msg.raw_message.clone(),
-        sender: msg.sender.clone(),
-        room_id: msg.room_id.clone(),
-        event_id: msg.event_id.clone(),
-    };
-    let body = serde_json::to_value(&payload).map_err(|e| e.to_string())?;
+    let body = serde_json::to_value(payload).map_err(|e| e.to_string())?;
 
     Ok(WebhookRequest {
         method: trigger.method.clone(),
