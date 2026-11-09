@@ -520,7 +520,7 @@ dependencies = [
  "botrix-common",
  "console_error_panic_hook",
  "gloo-net",
- "gloo-timers 0.3.0",
+ "gloo-timers 0.4.0",
  "leptos",
  "leptos_router",
  "serde",
