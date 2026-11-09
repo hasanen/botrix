@@ -407,7 +407,7 @@ recorded here per the dependency-review rule.
     semantics); response branches; help filtering.
   - Demo: `cargo test` shows authz/respond/help tests passing.
 
-- [ ] **Task 7: Incoming-message handler wired into the sync loop.** Register
+- [x] **Task 7: Incoming-message handler wired into the sync loop.** Register
   `Client::add_event_handler` for `OriginalSyncRoomMessageEvent` on
   connect/activate, attached before syncing. Handler ignores own messages, runs
   `parse_command`, spawns a task doing DB lookup → authz → webhook call → render →

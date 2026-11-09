@@ -9,6 +9,7 @@
 pub mod auth;
 pub mod client;
 pub mod command;
+pub mod command_handler;
 pub mod crypto;
 pub mod handle;
 pub mod sender;

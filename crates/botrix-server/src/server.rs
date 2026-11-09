@@ -35,6 +35,9 @@ pub enum ServerError {
     /// The database could not be initialized.
     #[error("database initialization failed: {0}")]
     Database(#[from] crate::db::DbError),
+    /// The webhook HTTP client could not be built.
+    #[error("webhook client initialization failed: {0}")]
+    WebhookClient(#[from] crate::triggers::webhook::WebhookError),
     /// The TCP listener could not be bound.
     #[error("failed to bind {addr}: {source}")]
     Bind {
@@ -108,6 +111,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         }
     };
 
+    let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
+        pool: pool.clone(),
+        crypto_passphrase: Arc::from(crypto_passphrase.as_str()),
+        caller: Arc::new(crate::triggers::reqwest_caller::ReqwestCaller::with_defaults()?),
+    });
+
     let matrix = match restored {
         Some(client) => {
             tracing::info!("Matrix session active; using live message sender");
@@ -118,11 +127,11 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
                 "session restored",
                 client.user_id().map(|u| u.to_string()).as_deref(),
             );
-            crate::matrix::MatrixHandle::connected(client, destinations)
+            crate::matrix::MatrixHandle::connected(client, destinations, command_ctx)
         }
         None => {
             tracing::info!("Matrix not connected; notifications will queue");
-            crate::matrix::MatrixHandle::new(destinations)
+            crate::matrix::MatrixHandle::new(destinations, command_ctx)
         }
     };
 
@@ -196,7 +205,12 @@ pub async fn build_app(
     // A disconnected handle: notifications queue until a session is
     // established. Production startup uses [`build_app_with_matrix`].
     let destinations = crate::matrix::client::destination_map(&config);
-    let matrix = crate::matrix::MatrixHandle::new(destinations);
+    let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
+        pool: pool.clone(),
+        crypto_passphrase: Arc::from("test-passphrase"),
+        caller: Arc::new(crate::triggers::webhook::FakeCaller::new()),
+    });
+    let matrix = crate::matrix::MatrixHandle::new(destinations, command_ctx);
     build_app_with_matrix(
         pool,
         config,
