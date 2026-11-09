@@ -560,7 +560,7 @@ dependencies = [
  "matrix-sdk",
  "r2d2",
  "r2d2_sqlite",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest",
  "rusqlite",
  "rust-embed",

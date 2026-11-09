@@ -46,7 +46,7 @@ hkdf = "0.12"
 url = "2"
 argon2 = "0.5"
 tower-sessions = "0.14"
-rand = "0.8"
+rand = "0.10"
 sha2 = "0.10"
 constant_time_eq = "0.4"
 clap = { version = "4", features = ["derive", "env"] }
