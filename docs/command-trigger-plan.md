@@ -377,7 +377,7 @@ recorded here per the dependency-review rule.
     `info` label than OAuth tokens → different ciphertext for the same input.
   - Demo: `cargo test` shows secret crypto tests passing.
 
-- [ ] **Task 4: Command parsing (pure function, TDD).** Add `matrix/command.rs`
+- [x] **Task 4: Command parsing (pure function, TDD).** Add `matrix/command.rs`
   with `parse_command(body, mentions, bot_mxid) -> Option<ParsedCommand>`:
   identity-based mention-at-start, case-insensitive command (first word),
   `arguments` (raw remainder), `args` (whitespace split).
