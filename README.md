@@ -40,6 +40,19 @@ Open `http://localhost:8080` to create the admin account.
 - Browsers only accept the session cookie over HTTPS (or `localhost`). For a quick trial over plain HTTP on another host, add `-e BOTRIX_INSECURE_COOKIES=1`; otherwise put Botrix behind an HTTPS reverse proxy.
 - Botrix has no built-in rate limiting. Run it behind a reverse proxy that provides it (see the [deployment guide](https://hasanen.github.io/botrix/deployment)).
 
+## Command triggers
+
+The reverse direction: mention the bot in a Matrix room (`@botrix <command> args`) and Botrix calls an external HTTP webhook, then replies in the room with the result.
+
+- Manage triggers at `/triggers` and reusable access profiles at `/access-profiles` in the web UI. Changes apply immediately, no restart. Triggers are stored in the database, not the YAML config.
+- Commands match case-insensitively on the first word after the mention. `help` is built in and lists only the commands the sender can run in that room.
+- The request payload has fixed keys: `command`, `arguments`, `args`, `raw_message`, `sender`, `room_id`, `event_id`.
+- The reply is the JSON response rendered through the same `${field.path}` templates as webhooks. Non-JSON or failed calls reply with a short success or failure notice; details go to the logs.
+- Header values can reference secrets with `{{secret:NAME}}`. Secrets are encrypted at rest and write-only: the API and UI never show them again, only that they are set.
+- Access control: each trigger can limit allowed rooms and users. Both must match (AND). An empty list means unrestricted. Inline lists override the trigger's access profile.
+- Outbound calls are SSRF-guarded: loopback, private, link-local, unique-local, unspecified and multicast addresses are blocked, redirects are not followed, and requests have timeouts and a response size cap.
+- Replies are not retried. A command is never replayed, so a failure is reported once in the room.
+
 ## Documentation
 
 Full documentation is available at **[hasanen.github.io/botrix](https://hasanen.github.io/botrix)**.
