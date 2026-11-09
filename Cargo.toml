@@ -39,7 +39,7 @@ matrix-sdk = { version = "0.19", default-features = false, features = ["e2e-encr
 # already in the resolved dependency tree (pulled transitively by matrix-sdk /
 # vodozemac), so declaring them directly reuses the existing versions without
 # adding a new crate to the build.
-aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
 hkdf = "0.12"
 # For building/parsing the OAuth redirect URI. Already in the tree via
 # matrix-sdk, so this adds no new crate.
