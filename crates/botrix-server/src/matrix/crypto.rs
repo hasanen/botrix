@@ -59,8 +59,8 @@ fn derive_key(passphrase: &str, info: &[u8]) -> [u8; KEY_LEN] {
 /// Build an AES-256-GCM cipher from the passphrase and HKDF `info` label.
 fn cipher(passphrase: &str, info: &[u8]) -> Aes256Gcm {
     let key_bytes = derive_key(passphrase, info);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    Aes256Gcm::new(key)
+    let key = Key::<Aes256Gcm>::from(key_bytes);
+    Aes256Gcm::new(&key)
 }
 
 /// Encrypt a token string, returning hex of `nonce || ciphertext || tag`.
@@ -106,10 +106,10 @@ fn encrypt_with_info(
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
+        .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| MatrixError::TokenEncryption(e.to_string()))?;
 
     let mut out = Vec::with_capacity(NONCE_LEN + ciphertext.len());
@@ -138,11 +138,12 @@ fn decrypt_with_info(passphrase: &str, info: &[u8], stored: &str) -> Result<Stri
         ));
     }
     let (nonce_bytes, ciphertext) = bytes.split_at(NONCE_LEN);
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce = Nonce::try_from(nonce_bytes)
+        .map_err(|_| MatrixError::TokenDecryption("invalid nonce length".to_owned()))?;
 
     let cipher = cipher(passphrase, info);
     let plaintext = cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|e| MatrixError::TokenDecryption(e.to_string()))?;
 
     String::from_utf8(plaintext)
