@@ -1,5 +1,10 @@
 //! HTTP API client helpers for communicating with the `botrix-server` backend.
 
+use crate::triggers_form::TriggerForm;
+use botrix_common::api::triggers::{
+    AccessProfileDto, AccessProfileInput, TriggerDto, TriggerInput, TriggerTestRequest,
+    TriggerTestResponse,
+};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -172,6 +177,79 @@ pub async fn delete_csrf<T: for<'de> Deserialize<'de>>(path: &str) -> Result<T, 
         .json::<T>()
         .await
         .map_err(|e| ApiError::Deserialize(e.to_string()))
+}
+
+/// List all command triggers.
+pub async fn list_triggers() -> Result<Vec<TriggerDto>, ApiError> {
+    get("/api/v1/triggers").await
+}
+
+/// Fetch one command trigger.
+pub async fn get_trigger(id: i64) -> Result<TriggerDto, ApiError> {
+    get(&format!("/api/v1/triggers/{id}")).await
+}
+
+/// Create a command trigger.
+pub async fn create_trigger(input: &TriggerInput) -> Result<TriggerDto, ApiError> {
+    post_csrf("/api/v1/triggers", input).await
+}
+
+/// Replace a command trigger.
+pub async fn update_trigger(id: i64, input: &TriggerInput) -> Result<TriggerDto, ApiError> {
+    put_csrf(&format!("/api/v1/triggers/{id}"), input).await
+}
+
+/// Delete a command trigger.
+pub async fn delete_trigger(id: i64) -> Result<(), ApiError> {
+    delete_csrf::<serde_json::Value>(&format!("/api/v1/triggers/{id}"))
+        .await
+        .map(|_| ())
+}
+
+/// Enable or disable a trigger via a full `PUT`; stored secrets stay unchanged.
+pub async fn set_trigger_enabled(
+    trigger: &TriggerDto,
+    enabled: bool,
+) -> Result<TriggerDto, ApiError> {
+    let mut form = TriggerForm::from_dto(trigger);
+    form.enabled = enabled;
+    update_trigger(trigger.id, &form.to_input()).await
+}
+
+/// Dry-run a trigger against its webhook.
+pub async fn test_trigger(id: i64, args: Option<String>) -> Result<TriggerTestResponse, ApiError> {
+    post_csrf(
+        &format!("/api/v1/triggers/{id}/test"),
+        &TriggerTestRequest { args },
+    )
+    .await
+}
+
+/// List all access profiles.
+pub async fn list_access_profiles() -> Result<Vec<AccessProfileDto>, ApiError> {
+    get("/api/v1/access-profiles").await
+}
+
+/// Create an access profile.
+pub async fn create_access_profile(
+    input: &AccessProfileInput,
+) -> Result<AccessProfileDto, ApiError> {
+    post_csrf("/api/v1/access-profiles", input).await
+}
+
+/// Replace an access profile.
+pub async fn update_access_profile(
+    id: i64,
+    input: &AccessProfileInput,
+) -> Result<AccessProfileDto, ApiError> {
+    put_csrf(&format!("/api/v1/access-profiles/{id}"), input).await
+}
+
+/// Delete an access profile.
+pub async fn delete_access_profile(id: i64) -> Result<(), ApiError> {
+    delete_csrf::<serde_json::Value>(&format!("/api/v1/access-profiles/{id}"))
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
