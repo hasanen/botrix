@@ -397,7 +397,7 @@ recorded here per the dependency-review rule.
     string.
   - Demo: `cargo test` shows caller + SSRF predicate tests passing.
 
-- [ ] **Task 6: Authorization + response rendering + help (TDD).** Add
+- [x] **Task 6: Authorization + response rendering + help (TDD).** Add
   `triggers/authz.rs` (effective allowlists: non-empty inline overrides profile;
   AND logic; empty dimension = allow) and `triggers/respond.rs` (JSON+template →
   render via `webhooks::template::render`; non-JSON/no template →
