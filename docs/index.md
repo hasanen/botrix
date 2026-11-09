@@ -28,6 +28,7 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 - [Webhook integrations](webhooks.md) — template syntax, examples, response codes
 - [Matrix setup](matrix-setup.md) — connecting an account, E2EE, room management
 - [Deployment guide](deployment.md) — container setup, backup, reverse proxy
+- [Development](development.md) — devcontainer, checks, running locally
 
 ## Source
 
