@@ -1,0 +1,47 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # matrix-sdk, rusqlite and r2d2_sqlite must bump together so a single
+      # libsqlite3-sys stays in the lockfile. Do not split or ignore.
+      matrix-sqlite:
+        patterns:
+          - "matrix-sdk*"
+          - "rusqlite"
+          - "r2d2_sqlite"
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+        exclude-patterns:
+          - "matrix-sdk*"
+          - "rusqlite"
+          - "r2d2_sqlite"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Dependabot's docker ecosystem scans for files named Dockerfile*; the
+  # Containerfile name may not be picked up. Verify under Insights > Dependency graph > Dependabot.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
