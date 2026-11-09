@@ -18,5 +18,5 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 web-sys = { workspace = true, features = ["Window", "Navigator", "Clipboard"] }
 wasm-bindgen-futures = "0.4"
-gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-timers = { version = "0.4", features = ["futures"] }
 console_error_panic_hook = "0.1"
