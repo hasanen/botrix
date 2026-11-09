@@ -36,23 +36,29 @@ const NONCE_LEN: usize = 12;
 /// treated as a stable protocol constant.
 const HKDF_INFO: &[u8] = b"botrix:matrix-oauth-token:v1";
 
+/// HKDF `info` string for command-trigger secrets.
+///
+/// Domain-separates trigger-secret keys from OAuth-token keys. Like
+/// [`HKDF_INFO`], it is a stable protocol constant.
+const HKDF_INFO_TRIGGER_SECRET: &[u8] = b"botrix:trigger-secret:v1";
+
 /// Derive the AES-256 key from the operator passphrase via HKDF-SHA256.
 ///
 /// No salt is used so the derivation is deterministic for a given passphrase;
 /// confidentiality rests on the passphrase secrecy and the per-message nonce.
-fn derive_key(passphrase: &str) -> [u8; KEY_LEN] {
+fn derive_key(passphrase: &str, info: &[u8]) -> [u8; KEY_LEN] {
     let hkdf = Hkdf::<Sha256>::new(None, passphrase.as_bytes());
     let mut key = [0u8; KEY_LEN];
     // `expand` only fails if the output length exceeds 255*HashLen; 32 bytes
     // is well within range for SHA-256, so this cannot fail here.
-    hkdf.expand(HKDF_INFO, &mut key)
+    hkdf.expand(info, &mut key)
         .unwrap_or_else(|_| unreachable!("HKDF expand of 32 bytes is always valid"));
     key
 }
 
-/// Build an AES-256-GCM cipher from the passphrase.
-fn cipher(passphrase: &str) -> Aes256Gcm {
-    let key_bytes = derive_key(passphrase);
+/// Build an AES-256-GCM cipher from the passphrase and HKDF `info` label.
+fn cipher(passphrase: &str, info: &[u8]) -> Aes256Gcm {
+    let key_bytes = derive_key(passphrase, info);
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     Aes256Gcm::new(key)
 }
@@ -63,7 +69,40 @@ fn cipher(passphrase: &str) -> Aes256Gcm {
 ///
 /// Returns [`MatrixError::TokenEncryption`] if the AEAD operation fails.
 pub fn encrypt_token(passphrase: &str, plaintext: &str) -> Result<String, MatrixError> {
-    let cipher = cipher(passphrase);
+    encrypt_with_info(passphrase, HKDF_INFO, plaintext)
+}
+
+/// Encrypt a command-trigger secret, returning hex of
+/// `nonce || ciphertext || tag`.
+///
+/// Uses a key derived with [`HKDF_INFO_TRIGGER_SECRET`], so the output cannot
+/// be decrypted by [`decrypt_token`] (and vice versa).
+///
+/// # Errors
+///
+/// Returns [`MatrixError::TokenEncryption`] if the AEAD operation fails.
+pub fn encrypt_trigger_secret(passphrase: &str, plaintext: &str) -> Result<String, MatrixError> {
+    encrypt_with_info(passphrase, HKDF_INFO_TRIGGER_SECRET, plaintext)
+}
+
+/// Decrypt a trigger secret produced by [`encrypt_trigger_secret`].
+///
+/// # Errors
+///
+/// Returns [`MatrixError::TokenDecryption`] if the input is malformed, the
+/// passphrase is wrong, the value was encrypted under a different label, or
+/// the authentication tag does not verify.
+pub fn decrypt_trigger_secret(passphrase: &str, stored: &str) -> Result<String, MatrixError> {
+    decrypt_with_info(passphrase, HKDF_INFO_TRIGGER_SECRET, stored)
+}
+
+/// Shared encryption routine, parametrized by the HKDF `info` label.
+fn encrypt_with_info(
+    passphrase: &str,
+    info: &[u8],
+    plaintext: &str,
+) -> Result<String, MatrixError> {
+    let cipher = cipher(passphrase, info);
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
@@ -86,6 +125,11 @@ pub fn encrypt_token(passphrase: &str, plaintext: &str) -> Result<String, Matrix
 /// Returns [`MatrixError::TokenDecryption`] if the input is malformed, the
 /// passphrase is wrong, or the authentication tag does not verify.
 pub fn decrypt_token(passphrase: &str, stored: &str) -> Result<String, MatrixError> {
+    decrypt_with_info(passphrase, HKDF_INFO, stored)
+}
+
+/// Shared decryption routine, parametrized by the HKDF `info` label.
+fn decrypt_with_info(passphrase: &str, info: &[u8], stored: &str) -> Result<String, MatrixError> {
     let bytes = hex_decode(stored)
         .ok_or_else(|| MatrixError::TokenDecryption("value is not valid hex".to_owned()))?;
     if bytes.len() <= NONCE_LEN {
@@ -96,7 +140,7 @@ pub fn decrypt_token(passphrase: &str, stored: &str) -> Result<String, MatrixErr
     let (nonce_bytes, ciphertext) = bytes.split_at(NONCE_LEN);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let cipher = cipher(passphrase);
+    let cipher = cipher(passphrase, info);
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
         .map_err(|e| MatrixError::TokenDecryption(e.to_string()))?;
@@ -203,5 +247,47 @@ mod tests {
     fn empty_token_round_trips() {
         let encrypted = encrypt_token(PASS, "").unwrap();
         assert_eq!(decrypt_token(PASS, &encrypted).unwrap(), "");
+    }
+
+    #[test]
+    fn trigger_secret_round_trip_recovers_plaintext() {
+        // Arrange
+        let secret = "whsec_trigger_0123456789";
+
+        // Act
+        let encrypted = encrypt_trigger_secret(PASS, secret).unwrap();
+        let decrypted = decrypt_trigger_secret(PASS, &encrypted).unwrap();
+
+        // Assert
+        assert_eq!(decrypted, secret);
+    }
+
+    #[test]
+    fn trigger_secret_ciphertext_differs_from_plaintext() {
+        let secret = "my-trigger-secret";
+        let encrypted = encrypt_trigger_secret(PASS, secret).unwrap();
+        assert_ne!(encrypted, secret);
+        assert!(!encrypted.contains(secret));
+    }
+
+    #[test]
+    fn trigger_secret_wrong_passphrase_fails_to_decrypt() {
+        let encrypted = encrypt_trigger_secret(PASS, "secret").unwrap();
+        let err = decrypt_trigger_secret("a-different-passphrase", &encrypted).unwrap_err();
+        assert!(matches!(err, MatrixError::TokenDecryption(_)));
+    }
+
+    #[test]
+    fn token_ciphertext_cannot_be_decrypted_as_trigger_secret() {
+        let encrypted = encrypt_token(PASS, "same-input").unwrap();
+        let err = decrypt_trigger_secret(PASS, &encrypted).unwrap_err();
+        assert!(matches!(err, MatrixError::TokenDecryption(_)));
+    }
+
+    #[test]
+    fn trigger_secret_ciphertext_cannot_be_decrypted_as_token() {
+        let encrypted = encrypt_trigger_secret(PASS, "same-input").unwrap();
+        let err = decrypt_token(PASS, &encrypted).unwrap_err();
+        assert!(matches!(err, MatrixError::TokenDecryption(_)));
     }
 }

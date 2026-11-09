@@ -370,7 +370,7 @@ recorded here per the dependency-review rule.
     delete; profile delete sets trigger FK null; `Debug` redaction of ciphertext.
   - Demo: `cargo test -p botrix-server` shows new DB tests passing.
 
-- [ ] **Task 3: Trigger-secret encryption (TDD).** Add encryption for trigger
+- [x] **Task 3: Trigger-secret encryption (TDD).** Add encryption for trigger
   secrets using the AES-256-GCM/HKDF pattern with a new `info` label
   `b"botrix:trigger-secret:v1"`. Typed errors only.
   - Test: round-trip; ciphertext ≠ plaintext; wrong passphrase fails; different
