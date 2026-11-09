@@ -359,7 +359,7 @@ recorded here per the dependency-review rule.
   - Test: n/a (doc). Verify the file renders and matches the agreed scope.
   - Demo: the committed plan doc with the dependency summary section.
 
-- [ ] **Task 2: Data model + persistence layer (TDD).** Add
+- [x] **Task 2: Data model + persistence layer (TDD).** Add
   `migrations/0002_command_triggers.sql`, register it in `db/migrate.rs`. Add row
   structs to `db/models.rs` with `debug_redacting!` on the secret row. Add
   `db/triggers.rs` and `db/access_profiles.rs` with CRUD + list queries following

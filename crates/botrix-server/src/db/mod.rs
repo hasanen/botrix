@@ -22,6 +22,7 @@ macro_rules! debug_redacting {
 }
 pub(crate) use debug_redacting;
 
+pub mod access_profiles;
 pub mod auth;
 pub mod history;
 pub mod logs;
@@ -31,6 +32,7 @@ pub mod migrate;
 pub mod models;
 pub mod session_store;
 pub mod settings;
+pub mod triggers;
 pub mod webhooks;
 
 use r2d2_sqlite::SqliteConnectionManager;
