@@ -7,6 +7,7 @@ use leptos_router::{
 };
 
 use crate::pages::{
+    access_profiles::AccessProfilesPage,
     dashboard::DashboardPage,
     login::LoginPage,
     logs::LogsPage,
@@ -33,6 +34,7 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/triggers/new") view=TriggerNewPage />
                 <Route path=path!("/triggers/:id") view=TriggerEditPage />
                 <Route path=path!("/logs") view=LogsPage />
+                <Route path=path!("/access-profiles") view=AccessProfilesPage />
                 <Route path=path!("/settings") view=SettingsPage />
             </Routes>
         </Router>

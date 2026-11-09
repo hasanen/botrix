@@ -434,7 +434,7 @@ recorded here per the dependency-review rule.
   - Demo: test-suite shows full CRUD with write-only secrets and a working test
     endpoint.
 
-- [ ] **Task 9: Web UI — Triggers and Access Profiles pages.** Add a `/triggers`
+- [x] **Task 9: Web UI — Triggers and Access Profiles pages.** Add a `/triggers`
   Leptos page (and nav entry) under `AuthLayout`: list with enable/disable
   toggle, create/edit form (command, description, method, URL, response template,
   header rows, secret name + write-only value with set/clear, access via profile

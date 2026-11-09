@@ -1,5 +1,6 @@
 //! SPA page components — one module per route.
 
+pub mod access_profiles;
 pub mod dashboard;
 pub mod login;
 pub mod logs;
