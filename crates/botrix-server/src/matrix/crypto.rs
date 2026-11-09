@@ -19,7 +19,6 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use hkdf::Hkdf;
-use rand::RngCore;
 use sha2::Sha256;
 
 use super::MatrixError;
@@ -105,7 +104,7 @@ fn encrypt_with_info(
     let cipher = cipher(passphrase, info);
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::fill(&mut nonce_bytes);
     let nonce = Nonce::from(nonce_bytes);
 
     let ciphertext = cipher

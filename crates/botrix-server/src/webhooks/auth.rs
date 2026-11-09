@@ -6,7 +6,6 @@
 //! avoid timing side channels.
 
 use constant_time_eq::constant_time_eq;
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 /// Number of random bytes in a generated token (256 bits of entropy).
@@ -18,7 +17,7 @@ const TOKEN_BYTES: usize = 32;
 /// `TOKEN_BYTES * 8` bits of entropy.
 pub fn generate_token() -> String {
     let mut bytes = [0u8; TOKEN_BYTES];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     hex_encode(&bytes)
 }
 
