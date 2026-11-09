@@ -386,7 +386,7 @@ recorded here per the dependency-review rule.
     `help` handled.
   - Demo: `cargo test` shows parser tests passing.
 
-- [ ] **Task 5: SSRF-guarded outbound webhook caller (TDD).** Promote `reqwest` +
+- [x] **Task 5: SSRF-guarded outbound webhook caller (TDD).** Promote `reqwest` +
   `ipnet` to direct deps. Add `triggers/webhook.rs`: `WebhookCaller` trait, real
   `ReqwestCaller` (redirects off, connect/total timeouts, response-size cap,
   custom `dns_resolver` rejecting blocked ranges), in-memory `FakeCaller`, fixed

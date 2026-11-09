@@ -60,6 +60,10 @@ anyhow = "1"
 unicode-normalization = "0.1"
 time = "0.3"
 async-trait = "0.1"
+# Already resolved in Cargo.lock via matrix-sdk (reqwest 0.13.5, ipnet 2.12.2);
+# declared directly for outbound command-trigger webhooks and SSRF checks.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+ipnet = "2"
 
 # Frontend-only
 leptos = { version = "0.7", features = ["csr"] }
