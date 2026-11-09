@@ -44,6 +44,8 @@ anyhow = { workspace = true }
 unicode-normalization = { workspace = true }
 time = { workspace = true }
 async-trait = { workspace = true }
+reqwest = { workspace = true }
+ipnet = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -19,6 +19,7 @@ use matrix_sdk::Client;
 use tokio::sync::RwLock;
 
 use crate::queue::sender::{MessageSender, SendError};
+use crate::triggers::handler::HandlerContext;
 
 use super::MatrixSender;
 
@@ -35,35 +36,50 @@ pub struct MatrixHandle {
     sync_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// Logical destination name → room ID, from config.
     destinations: HashMap<String, String>,
+    /// Dependencies for the bot-command event handler registered on each client.
+    command_ctx: Arc<HandlerContext>,
 }
 
 impl MatrixHandle {
     /// Create an empty handle (disconnected).
-    pub fn new(destinations: HashMap<String, String>) -> Self {
+    pub fn new(destinations: HashMap<String, String>, command_ctx: Arc<HandlerContext>) -> Self {
         Self {
             client: Arc::new(RwLock::new(None)),
             sender: Arc::new(SwappableSender::disconnected()),
             sync_task: Arc::new(RwLock::new(None)),
             destinations,
+            command_ctx,
         }
     }
 
     /// Create a handle already holding a restored, connected client, and start
     /// its background sync loop.
-    pub fn connected(client: Client, destinations: HashMap<String, String>) -> Self {
+    pub fn connected(
+        client: Client,
+        destinations: HashMap<String, String>,
+        command_ctx: Arc<HandlerContext>,
+    ) -> Self {
         let sender = SwappableSender::live(MatrixSender::new(client.clone(), destinations.clone()));
+        // Register before sync starts so no early message is missed.
+        super::command_handler::register(&client, command_ctx.clone());
         let sync_task = super::worker::spawn_sync(client.clone());
         Self {
             client: Arc::new(RwLock::new(Some(client))),
             sender: Arc::new(sender),
             sync_task: Arc::new(RwLock::new(Some(sync_task))),
             destinations,
+            command_ctx,
         }
     }
 
     /// The sender to hand to the delivery worker and the test-message endpoint.
     pub fn sender(&self) -> Arc<dyn MessageSender> {
         self.sender.clone()
+    }
+
+    /// The shared command-handling dependencies (pool, passphrase, webhook caller).
+    pub fn command_ctx(&self) -> &Arc<HandlerContext> {
+        &self.command_ctx
     }
 
     /// The configured destination map.
@@ -87,6 +103,8 @@ impl MatrixHandle {
         self.sender
             .set_live(MatrixSender::new(client.clone(), self.destinations.clone()))
             .await;
+        // Each login builds a fresh client, so this registers once per client.
+        super::command_handler::register(&client, self.command_ctx.clone());
         let task = super::worker::spawn_sync(client.clone());
         if let Some(old) = self.sync_task.write().await.replace(task) {
             old.abort();
@@ -159,6 +177,14 @@ impl MessageSender for SwappableSender {
 mod tests {
     use super::*;
 
+    fn command_ctx() -> Arc<HandlerContext> {
+        Arc::new(HandlerContext {
+            pool: crate::db::test_pool(),
+            crypto_passphrase: Arc::from("test-passphrase"),
+            caller: Arc::new(crate::triggers::webhook::FakeCaller::new()),
+        })
+    }
+
     fn destinations() -> HashMap<String, String> {
         HashMap::from([("containers".to_owned(), "!r:example.com".to_owned())])
     }
@@ -166,7 +192,7 @@ mod tests {
     #[tokio::test]
     async fn a_new_handle_is_disconnected_and_queues() {
         // Arrange
-        let handle = MatrixHandle::new(destinations());
+        let handle = MatrixHandle::new(destinations(), command_ctx());
 
         // Act + Assert
         assert!(!handle.is_connected().await);
@@ -178,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn deactivate_returns_to_queuing() {
         // Arrange: a disconnected handle (no client available in a unit test).
-        let handle = MatrixHandle::new(destinations());
+        let handle = MatrixHandle::new(destinations(), command_ctx());
 
         // Act
         handle.deactivate().await;
@@ -195,7 +221,7 @@ mod tests {
     async fn one_sender_arc_reflects_later_state_changes() {
         // The worker grabs the sender once at startup; swapping the backend
         // later must be visible through that same Arc.
-        let handle = MatrixHandle::new(destinations());
+        let handle = MatrixHandle::new(destinations(), command_ctx());
         let worker_sender = handle.sender();
 
         // Still disconnected -> transient.

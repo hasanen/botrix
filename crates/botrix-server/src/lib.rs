@@ -27,4 +27,5 @@ pub mod server;
 pub mod session;
 pub mod state;
 pub mod status;
+pub mod triggers;
 pub mod webhooks;

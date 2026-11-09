@@ -109,6 +109,79 @@ pub struct SessionSettings {
     pub updated_at: i64,
 }
 
+/// A row from the `access_profiles` table.
+#[derive(Debug)]
+pub struct AccessProfile {
+    /// Primary key.
+    pub id: i64,
+    /// Unique profile name.
+    pub name: String,
+    /// Allowed room IDs (stored as a JSON array).
+    pub allowed_rooms: Vec<String>,
+    /// Allowed user MXIDs (stored as a JSON array).
+    pub allowed_users: Vec<String>,
+    /// Unix timestamp of creation.
+    pub created_at: i64,
+    /// Unix timestamp of last update.
+    pub updated_at: i64,
+}
+
+/// A row from the `command_triggers` table.
+#[derive(Debug)]
+pub struct CommandTrigger {
+    /// Primary key.
+    pub id: i64,
+    /// Command name, stored lowercase and matched case-insensitively.
+    pub command: String,
+    /// Human-readable description.
+    pub description: String,
+    /// Whether the trigger is enabled.
+    pub enabled: bool,
+    /// HTTP method: `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`.
+    pub method: String,
+    /// Target URL.
+    pub url: String,
+    /// Response template; `None` means a status-only reply.
+    pub response_template: Option<String>,
+    /// Optional access profile this trigger uses.
+    pub access_profile_id: Option<i64>,
+    /// Allowed room IDs (stored as a JSON array).
+    pub allowed_rooms: Vec<String>,
+    /// Allowed user MXIDs (stored as a JSON array).
+    pub allowed_users: Vec<String>,
+    /// Unix timestamp of creation.
+    pub created_at: i64,
+    /// Unix timestamp of last update.
+    pub updated_at: i64,
+}
+
+/// A row from the `trigger_headers` table.
+#[derive(Debug)]
+pub struct TriggerHeader {
+    /// Primary key.
+    pub id: i64,
+    /// Owning trigger ID.
+    pub trigger_id: i64,
+    /// Header name.
+    pub name: String,
+    /// Header value; may contain `{{secret:NAME}}` placeholders.
+    pub value: String,
+}
+
+/// A row from the `trigger_secrets` table.
+pub struct TriggerSecret {
+    /// Primary key.
+    pub id: i64,
+    /// Owning trigger ID.
+    pub trigger_id: i64,
+    /// Secret name referenced by `{{secret:NAME}}` placeholders.
+    pub name: String,
+    /// AES-256-GCM encrypted secret value (hex).
+    pub ciphertext: String,
+    /// Unix timestamp of last update.
+    pub updated_at: i64,
+}
+
 super::debug_redacting!(Admin { id, username, created_at, updated_at; secret: password_hash });
 super::debug_redacting!(MatrixState {
     id, user_id, homeserver, device_id, oauth_client_id, connected_at,
@@ -116,3 +189,27 @@ super::debug_redacting!(MatrixState {
     secret: access_token, refresh_token
 });
 super::debug_redacting!(WebhookToken { id, webhook_id, enabled, created_at, updated_at; secret: token_hash });
+super::debug_redacting!(TriggerSecret { id, trigger_id, name, updated_at; secret: ciphertext });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trigger_secret_debug_does_not_leak_ciphertext() {
+        // Arrange
+        let secret = TriggerSecret {
+            id: 1,
+            trigger_id: 2,
+            name: "api_key".to_string(),
+            ciphertext: "deadbeefcafe0123".to_string(),
+            updated_at: 3,
+        };
+
+        // Act
+        let output = format!("{secret:?}");
+
+        // Assert
+        assert!(!output.contains("deadbeefcafe0123"));
+    }
+}

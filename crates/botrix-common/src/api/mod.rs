@@ -8,6 +8,7 @@ pub mod logs;
 pub mod matrix;
 pub mod notifications;
 pub mod settings;
+pub mod triggers;
 pub mod webhooks;
 
 #[cfg(test)]

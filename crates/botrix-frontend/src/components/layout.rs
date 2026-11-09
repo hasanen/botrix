@@ -8,10 +8,12 @@ use leptos_router::components::A;
 use crate::api;
 
 /// Navigation entries as `(path, label)`.
-const NAV: [(&str, &str); 5] = [
+const NAV: [(&str, &str); 7] = [
     ("/", "Dashboard"),
     ("/matrix", "Matrix"),
     ("/webhooks", "Webhooks"),
+    ("/triggers", "Triggers"),
+    ("/access-profiles", "Access profiles"),
     ("/logs", "Logs"),
     ("/settings", "Settings"),
 ];

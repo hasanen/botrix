@@ -35,6 +35,9 @@ pub enum ServerError {
     /// The database could not be initialized.
     #[error("database initialization failed: {0}")]
     Database(#[from] crate::db::DbError),
+    /// The webhook HTTP client could not be built.
+    #[error("webhook client initialization failed: {0}")]
+    WebhookClient(#[from] crate::triggers::webhook::WebhookError),
     /// The TCP listener could not be bound.
     #[error("failed to bind {addr}: {source}")]
     Bind {
@@ -108,6 +111,12 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
         }
     };
 
+    let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
+        pool: pool.clone(),
+        crypto_passphrase: Arc::from(crypto_passphrase.as_str()),
+        caller: Arc::new(crate::triggers::reqwest_caller::ReqwestCaller::with_defaults()?),
+    });
+
     let matrix = match restored {
         Some(client) => {
             tracing::info!("Matrix session active; using live message sender");
@@ -118,11 +127,11 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
                 "session restored",
                 client.user_id().map(|u| u.to_string()).as_deref(),
             );
-            crate::matrix::MatrixHandle::connected(client, destinations)
+            crate::matrix::MatrixHandle::connected(client, destinations, command_ctx)
         }
         None => {
             tracing::info!("Matrix not connected; notifications will queue");
-            crate::matrix::MatrixHandle::new(destinations)
+            crate::matrix::MatrixHandle::new(destinations, command_ctx)
         }
     };
 
@@ -193,10 +202,34 @@ pub async fn build_app(
     session_secret: &str,
     secure_cookies: bool,
 ) -> Result<Router, ServerError> {
+    build_app_with_caller(
+        pool,
+        config,
+        session_secret,
+        secure_cookies,
+        Arc::new(crate::triggers::webhook::FakeCaller::new()),
+    )
+    .await
+}
+
+/// Like [`build_app`], but with a caller-supplied webhook caller so tests can
+/// inspect requests and queue responses.
+pub async fn build_app_with_caller(
+    pool: crate::db::Pool,
+    config: Config,
+    session_secret: &str,
+    secure_cookies: bool,
+    caller: Arc<dyn crate::triggers::webhook::WebhookCaller>,
+) -> Result<Router, ServerError> {
     // A disconnected handle: notifications queue until a session is
     // established. Production startup uses [`build_app_with_matrix`].
     let destinations = crate::matrix::client::destination_map(&config);
-    let matrix = crate::matrix::MatrixHandle::new(destinations);
+    let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
+        pool: pool.clone(),
+        crypto_passphrase: Arc::from("test-passphrase"),
+        caller,
+    });
+    let matrix = crate::matrix::MatrixHandle::new(destinations, command_ctx);
     build_app_with_matrix(
         pool,
         config,
@@ -274,7 +307,8 @@ pub async fn build_app_with_matrix(
 /// Assemble the API router with the given application state.
 fn build_router(state: AppState) -> Router {
     use crate::api::{
-        auth, logs, matrix as api_matrix, notifications, settings, webhooks as api_webhooks,
+        access_profiles, auth, logs, matrix as api_matrix, notifications, settings, triggers,
+        webhooks as api_webhooks,
     };
     use crate::webhooks::handler as webhook_handler;
     use axum::extract::DefaultBodyLimit;
@@ -315,6 +349,27 @@ fn build_router(state: AppState) -> Router {
             "/api/v1/webhooks/{id}/token",
             post(api_webhooks::generate_token).delete(api_webhooks::revoke_token),
         )
+        // Access profiles (authenticated)
+        .route(
+            "/api/v1/access-profiles",
+            get(access_profiles::list).post(access_profiles::create),
+        )
+        .route(
+            "/api/v1/access-profiles/{id}",
+            axum::routing::put(access_profiles::update).delete(access_profiles::delete),
+        )
+        // Command triggers (authenticated)
+        .route(
+            "/api/v1/triggers",
+            get(triggers::list).post(triggers::create),
+        )
+        .route(
+            "/api/v1/triggers/{id}",
+            get(triggers::get)
+                .put(triggers::update)
+                .delete(triggers::delete),
+        )
+        .route("/api/v1/triggers/{id}/test", post(triggers::test))
         // Matrix integration (authenticated)
         .route("/api/v1/matrix/status", get(api_matrix::status))
         .route("/api/v1/matrix/rooms", get(api_matrix::rooms))

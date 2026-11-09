@@ -30,6 +30,8 @@ pub enum Component {
     Matrix,
     /// Process lifecycle: startup, crash recovery, maintenance.
     System,
+    /// Command triggers.
+    Trigger,
 }
 
 impl Component {
@@ -41,6 +43,7 @@ impl Component {
             Component::Queue => "queue",
             Component::Matrix => "matrix",
             Component::System => "system",
+            Component::Trigger => "trigger",
         }
     }
 }
@@ -150,6 +153,7 @@ mod tests {
             Component::Queue,
             Component::Matrix,
             Component::System,
+            Component::Trigger,
         ];
 
         // Act: list_logs errors on any level string it cannot parse.
@@ -161,8 +165,22 @@ mod tests {
 
         // Assert
         let (items, total) = list_logs(&pool, 1, 100).unwrap();
-        assert_eq!(total, 15);
-        assert_eq!(items.len(), 15);
+        assert_eq!(total, 18);
+        assert_eq!(items.len(), 18);
+    }
+
+    #[test]
+    fn trigger_component_is_stored_and_read_back_as_trigger() {
+        // Arrange
+        let pool = test_pool();
+
+        // Act
+        record(&pool, LogLevel::Info, Component::Trigger, "fired", None);
+        let (items, _) = list_logs(&pool, 1, 10).unwrap();
+
+        // Assert
+        assert_eq!(Component::Trigger.as_str(), "trigger");
+        assert_eq!(items[0].component, "trigger");
     }
 
     #[test]

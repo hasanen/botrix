@@ -4,4 +4,5 @@ pub mod api;
 pub mod app;
 pub mod components;
 pub mod pages;
+pub mod triggers_form;
 pub mod util;

@@ -15,6 +15,12 @@ yanked = "warn"
 # the implementation plan and go away with upstream upgrades. Vulnerabilities
 # are always denied, at any depth.
 unmaintained = "workspace"
+ignore = [
+    # Review by 2027-01-09 (cargo-deny has no expiry, so this is only a reminder).
+    # Remove once matrix-sdk-sqlite and r2d2_sqlite release rusqlite 0.41
+    # support; the Dependabot matrix-sqlite group will propose it.
+    { id = "RUSTSEC-2026-0459", reason = "local-only exposure (needs attacker-crafted db + -wal pair in the data dir); fix is libsqlite3-sys >=0.39 / rusqlite 0.41 but matrix-sdk-sqlite 0.19.1 and r2d2_sqlite 0.35.0 still require rusqlite 0.40" },
+]
 
 [licenses]
 version = 2
