@@ -446,7 +446,7 @@ recorded here per the dependency-review rule.
   - Demo: in-browser create a trigger with a secret + access profile, toggle, run
     Test, see rendered preview; secret value never shown after save.
 
-- [ ] **Task 10: End-to-end wiring, docs, and hardening.** Confirm full path
+- [x] **Task 10: End-to-end wiring, docs, and hardening.** Confirm full path
   wired (handler registered on connect/activate/restore; API routes live; UI
   reachable; `Component::Trigger` logs in the Logs page). Update `README` /
   `docs/configuration.md`. Review `deny.toml`; run `cargo deny check`.
