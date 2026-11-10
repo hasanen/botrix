@@ -6,8 +6,33 @@ default:
 
 # ── Development ──────────────────────────────────────────────────────────────
 
-# Run the server in dev mode with auto-reload (requires cargo-watch)
-dev:
+# Create .env from the example if it is missing
+env:
+    @[ -f .env ] || cp .env.example .env
+
+# Start the devcontainer
+up: env
+    devcontainer up --workspace-folder .
+
+# Open a shell in the devcontainer
+shell: up
+    devcontainer exec --workspace-folder . bash
+
+# Run the server in the devcontainer (loads .env, uses dev-config/ and dev-data/)
+dev: up
+    devcontainer exec --workspace-folder . sh -c 'set -a; . ./.env; set +a; \
+        mkdir -p dev-config dev-data; \
+        [ -f dev-config/config.yaml ] || cp config.example.yaml dev-config/config.yaml; \
+        export CARGO_TARGET_DIR=/home/vscode/target \
+            BOTRIX_CONFIG=$PWD/dev-config/config.yaml \
+            BOTRIX_DATA_DIR=$PWD/dev-data \
+            BOTRIX_FRONTEND_DIR=$PWD/crates/botrix-frontend/dist; \
+        scripts/install-trunk.sh; \
+        (cd crates/botrix-frontend && trunk build); \
+        exec cargo run -p botrix-server -- serve'
+
+# Run the server with auto-reload (requires cargo-watch)
+watch:
     cargo watch -x 'run --bin botrix -- serve'
 
 # Build and watch the WASM frontend with live reload (requires trunk)
@@ -69,11 +94,9 @@ build-container:
     podman build -t botrix:dev -f Containerfile .
 
 # Run the container locally (requires dev-data/ and dev-config/)
-run-container:
+run-container: env
     podman run --rm -p 8080:8080 \
         -v ./dev-data:/data \
         -v ./dev-config:/config:ro \
-        -e BOTRIX_SESSION_SECRET=dev-secret-change-me \
-        -e BOTRIX_CRYPTO_PASSPHRASE=dev-passphrase-change-me \
-        -e RUST_LOG=info \
+        --env-file .env \
         botrix:dev
