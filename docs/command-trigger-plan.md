@@ -740,7 +740,7 @@ task. No new dependencies.
     routes return 404/405.
   - Demo: API integration tests green.
 
-- [ ] **Task 15: Frontend: read-only triggers table with secret actions (TDD for
+- [x] **Task 15: Frontend: read-only triggers table with secret actions (TDD for
   helpers).** Rewrite `pages/triggers.rs` like the Webhook endpoints card;
   delete `trigger_edit.rs`, `triggers_form.rs`, `access_profiles.rs`, their
   routes and the nav entry.
