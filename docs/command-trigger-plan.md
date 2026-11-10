@@ -1,7 +1,11 @@
 # Botrix – Dynamic Matrix Command Triggers
 
-> **Status:** In progress.
-> **Scope:** Add UI-managed command triggers that let a Matrix user mention the
+> **Status:** In progress. Tasks 1-10 are implemented as originally designed
+> (UI-managed, DB-backed). **Revision proposed in
+> [§13](#13-revision-yaml-defined-triggers-proposed): define triggers and access
+> profiles in YAML (version-controlled, read into memory at startup) and keep
+> only headers and secrets in the UI/DB. Pending review; tasks 11-17.**
+> **Scope:** Add command triggers that let a Matrix user mention the
 > bot to invoke an external HTTP webhook and get the response back in the room.
 
 ---
@@ -20,6 +24,7 @@
 10. [Dependency Approval](#10-dependency-approval)
 11. [Task Breakdown](#11-task-breakdown)
 12. [Conventions to Honor](#12-conventions-to-honor)
+13. [Revision: YAML-defined triggers (proposed)](#13-revision-yaml-defined-triggers-proposed)
 
 ---
 
@@ -112,6 +117,9 @@ client of its own.
 ---
 
 ## 4. Design Decisions
+
+> **Decisions 1, 2, 5 and 6 are superseded by [§13](#13-revision-yaml-defined-triggers-proposed)
+> if the revision is approved.**
 
 1. **Triggers are DB-backed, not YAML.** The requirement is explicit:
    UI-managed, hot-reloading, no restart. This differs from the existing YAML
@@ -468,3 +476,285 @@ recorded here per the dependency-review rule.
   installed per the Artifactory-only rule.
 - All cargo/trunk/test commands run in the Botrix devcontainer.
 - Commit in meaningful chunks per the user's git preference.
+
+---
+
+## 13. Revision: YAML-defined triggers (proposed)
+
+> **Status:** Proposal, pending review. Nothing below is implemented.
+> If approved, it supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
+> `access_profiles` / `trigger_headers` parts of §5, the CRUD parts of §6, the
+> UI in task 9, and the "no config schema change" line in §9.
+
+### 13.1 Why
+
+The original intent was that triggers live in version control. The UI-managed
+design (§4.1) made the DB the source of truth, so triggers cannot be reviewed,
+diffed, or reproduced from a repository. Webhooks and destinations are already
+YAML; triggers should follow the same model, including how the UI shows them.
+
+### 13.2 Principle: everything in YAML except secret values
+
+| Lives in YAML (version-controlled, read at startup) | Lives in the DB (set via the UI) |
+|---|---|
+| command, description, `enabled`, method, URL, response template | secret **values** only (AES-GCM, unchanged) |
+| headers (values may use `{{secret:NAME}}`) | |
+| secret **names** | |
+| inline `allowed_rooms` / `allowed_users`, `access_profile` reference | |
+| the access profiles themselves | |
+
+Secret values never appear in the YAML. Declaring secret names there documents
+what a trigger needs, and headers reference them with `{{secret:NAME}}`, so a
+header can be committed safely.
+
+### 13.3 Design: no DB seeding
+
+Triggers and profiles are **not** copied into SQLite. They are parsed and
+validated with the rest of the config, then held in memory for the process
+lifetime.
+
+- `Config` gains `triggers: HashMap<String, TriggerConfig>` (key = command) and
+  `access_profiles: HashMap<String, AccessProfileConfig>` (key = profile name).
+  Both default to empty, so existing configs keep working.
+- The handler reads `ctx.config` (an `Arc<Config>`, already in `AppState`) for
+  trigger, profile and header lookup. No cache, no sync step.
+- The DB keeps one table, `trigger_secrets`, keyed by `(command, name)`.
+- **Hot reload is lost.** Changing a trigger needs a restart, same as webhooks
+  and destinations. Setting or clearing a secret in the UI applies immediately
+  (read from the DB on each command).
+- `enabled` is config-owned. Disable a command by editing the YAML and
+  restarting.
+
+Example:
+
+```yaml
+access_profiles:
+  ops:
+    allowed_rooms: ["!ops:example.com"]
+    allowed_users: ["@alice:example.com", "@bob:example.com"]
+
+triggers:
+  deploy:
+    description: Deploy the app
+    enabled: true
+    method: POST
+    url: https://ci.example.com/hook
+    headers:
+      Authorization: "Bearer {{secret:TOKEN}}"
+      X-Source: botrix
+    secrets: [TOKEN]               # values are set in the web UI
+    response_template: "${status}"
+    access_profile: ops            # optional; by name
+    allowed_rooms: []              # optional inline override (same rule as §4.6)
+    allowed_users: []
+```
+
+Access semantics are unchanged from §4.6: a non-empty inline list overrides the
+profile's list for that dimension; room and user dimensions are ANDed; empty
+means unrestricted.
+
+A declared secret with no stored value makes the command fail with a logged
+"secret NAME is not set" (existing behavior for a missing secret) and the usual
+"Command failed" reply. The UI shows such secrets as "Not set".
+
+### 13.4 Startup validation (`config/validate.rs`)
+
+Invalid trigger config prevents startup with a descriptive error, like the rest
+of the config:
+
+- command: non-empty, no whitespace, not `help`; duplicates rejected after
+  lowercasing (keys `Deploy` and `deploy` collide).
+- method in `GET|POST|PUT|PATCH|DELETE`.
+- URL parses and uses `http` or `https`. (SSRF screening still happens at call
+  time on resolved addresses; unchanged.)
+- `access_profile`, when set, names an existing profile.
+- room IDs start with `!`; user IDs look like `@local:domain`.
+- secret names are unique per trigger and use the charset the existing
+  `{{secret:NAME}}` parser accepts.
+- every `{{secret:NAME}}` in a header value names a declared secret.
+- **Guard against committed credentials:** headers whose names are
+  conventionally credentials (`Authorization`, `Proxy-Authorization`, `Cookie`,
+  `X-Api-Key`) must contain a `{{secret:...}}` placeholder; a literal value is
+  rejected. This is a heuristic, not a guarantee; the docs also say never to
+  put credentials in the YAML.
+
+### 13.5 Data model
+
+New forward-only migration `0003_triggers_from_config.sql`. There are no
+existing triggers to preserve, so nothing is carried over:
+
+```sql
+DROP TABLE trigger_headers;
+DROP TABLE trigger_secrets;
+DROP TABLE command_triggers;
+DROP TABLE access_profiles;
+
+CREATE TABLE trigger_secrets (
+    command    TEXT NOT NULL,              -- lowercase; matches a key in config triggers
+    name       TEXT NOT NULL,              -- matches a name in that trigger's `secrets`
+    ciphertext TEXT NOT NULL,              -- AES-256-GCM hex, info=b"botrix:trigger-secret:v1"
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (command, name)
+);
+```
+
+- **Orphans:** a stored secret whose command or name is no longer in the config
+  is ignored by the handler and the UI, and kept in the DB, so re-adding it
+  restores the value. It is not deleted at startup, so a typo in the YAML cannot
+  destroy stored secrets. Renaming a command or secret in YAML orphans its value.
+
+### 13.6 API
+
+Mirrors the webhooks API (`GET /api/v1/webhooks`, token generate/revoke).
+Triggers and profiles are read-only over the API; only secret values are
+writable.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/triggers` | List config triggers: command, description, enabled, method, URL, header names, access summary, declared secrets with `is_set` flags (never values) |
+| PUT | `/api/v1/triggers/{command}/secrets/{name}` | Set or replace a secret value (`{ "value": "..." }`); 404 if the command or secret name is not declared in config |
+| DELETE | `/api/v1/triggers/{command}/secrets/{name}` | Clear a secret value; same 404 rule |
+
+Both mutations require session + CSRF. The value must be non-empty and within a
+size limit (suggest 4 KiB), and it is write-only: it is never echoed.
+
+**Removed:** `POST /api/v1/triggers`, `GET/PUT/DELETE /api/v1/triggers/{id}`,
+`POST /api/v1/triggers/{id}/test`, and all `/api/v1/access-profiles*` routes.
+This also removes the dry-run Test action; see open question 1.
+
+`botrix-common/src/api/triggers.rs` shrinks to `TriggerInfo` (list item),
+`SecretStatusDto` and `SecretSetRequest`. `TriggerInput`, `TriggerDto`,
+`AccessProfileDto/Input`, `HeaderDto` and `SecretInput` are removed.
+
+### 13.7 UI
+
+Only the Triggers page remains, laid out like the **Webhook endpoints** card:
+a table with command, description, method, URL, enabled, access, and a
+secrets column. Each declared secret shows "Set" or "Not set" with *Set value*
+and *Clear* actions (value entered in a modal with a password field; clear goes
+through `ConfirmModal`). Nothing else is editable.
+
+Removed: the trigger create/edit page, the access-profiles page and nav entry,
+the header editor, the enable/disable toggle, delete, and Test.
+
+### 13.8 Impact on existing code
+
+Mostly deletion. Estimated net lines are strongly negative.
+
+- **Unchanged:** `triggers/webhook.rs`, `reqwest_caller.rs`, `ssrf.rs`,
+  `respond.rs`, `matrix/command.rs`, `matrix/crypto.rs`, the Matrix event
+  handler wiring.
+- **Adapted:** `triggers/authz.rs` and `triggers/help.rs` take the config types
+  instead of `db::models::*`; `triggers/handler.rs` looks up from
+  `ctx.config` (add `config: Arc<Config>` to `HandlerContext`), reads headers
+  from the config and secret values from the DB by command; `server.rs` passes
+  the config in and updates routes.
+- **Shrunk:** `db/triggers.rs` (about 790 lines) keeps only secret queries;
+  `api/triggers.rs` (about 300 lines) becomes list + set/clear secret;
+  frontend `pages/triggers.rs` becomes the read-only table.
+- **Removed:** `db/access_profiles.rs`, `api/access_profiles.rs`, frontend
+  `pages/trigger_edit.rs`, `triggers_form.rs`, `pages/access_profiles.rs`, the
+  `CommandTrigger` / `AccessProfile` / `TriggerHeader` row structs.
+- **Added:** config types in `botrix-common/src/config.rs`, validation in
+  `config/validate.rs`, migration `0003`, docs.
+
+### 13.9 Security notes
+
+- Secret handling is unchanged: AES-256-GCM, same HKDF label, never serialized
+  to API, UI or logs, `debug_redacting!` on the row.
+- Access rules, URLs and headers are now reviewable in git.
+- Removing the API write paths for triggers and profiles reduces the
+  authenticated attack surface: a stolen UI session can no longer widen an
+  allowlist or repoint a URL. It can only set or clear secret values, and only
+  for names declared in config.
+- Credentials in YAML are the new risk. Mitigations: no secret-value field in
+  the schema, the credential-header guard in §13.4, and a docs warning.
+
+### 13.10 Decisions and open questions
+
+Decided:
+- No existing triggers, so the migration drops the old tables and carries
+  nothing over.
+- Secret names are declared in YAML.
+- The UI only lists triggers and sets/clears secret values, like webhooks.
+- No UI-created triggers alongside config ones; one source of truth.
+
+Open (defaults assumed above):
+1. **Dry-run Test** is removed along with the rest of the extra UI. It was the
+   only way to try a webhook without a Matrix message. Keep the API-only
+   `POST /api/v1/triggers/{command}/test`? Default: drop it.
+2. **Headers moved to YAML**, which differs from your earlier "headers in the
+   UI". It follows from naming secrets in YAML: headers hold only
+   `{{secret:NAME}}` placeholders, so they are safe to commit and the UI needs
+   no header editor. Confirm, or say if you want headers kept in the UI.
+3. **Reload without restart** (e.g. SIGHUP) is out of scope; it fits later
+   because the config is held in an `Arc`.
+
+### 13.11 Task breakdown (if approved)
+
+Each task: tests first (Arrange, Act, Assert, observable behavior), then
+implementation; all cargo/trunk commands in the devcontainer; one commit per
+task. No new dependencies.
+
+- [ ] **Task 11: Config types and validation (TDD).** Add `TriggerConfig` and
+  `AccessProfileConfig` to `botrix-common/src/config.rs` (`#[serde(default)]`
+  maps on `Config`). Add the §13.4 rules to `config/validate.rs`.
+  - Test: valid config parses; each invalid rule returns its typed
+    `ValidationError` variant (`help`, duplicate after lowercasing, bad method,
+    bad URL scheme, unknown profile, malformed room/user ID, duplicate secret
+    name, header placeholder naming an undeclared secret, literal
+    `Authorization` value); a config with no `triggers` key still loads.
+  - Demo: `cargo test -p botrix-server config` passes.
+
+- [ ] **Task 12: Secret persistence keyed by command (TDD).** Add migration
+  `0003` (§13.5) and register it. Rewrite `db/triggers.rs` to secret queries by
+  `(command, name)`; delete `db/access_profiles.rs` and the unused row structs.
+  - Test: migration applies on a fresh and on a `0002`-migrated DB and leaves
+    only `trigger_secrets`; set/replace/clear/list by command; orphan rows
+    survive; `Debug` still redacts ciphertext.
+  - Demo: DB tests green.
+
+- [ ] **Task 13: Handler, authz and help read from config (TDD).** Add
+  `config: Arc<Config>` to `HandlerContext`; look up triggers, profiles and
+  headers from it; load secret values by command; adapt `authz.rs` and
+  `help.rs` to the config types. Reply texts are unchanged.
+  - Test: existing handler/authz/help tests re-pointed at config fixtures (same
+    assertions: unknown, disabled, unauthorized, success JSON/non-JSON, failure,
+    help filtering, profile override, AND logic), plus: header placeholder
+    resolved from a stored secret; declared secret not set fails with a logged
+    error and no secret value in logs.
+  - Demo: `cargo test -p botrix-server triggers` passes.
+
+- [ ] **Task 14: API: list triggers, set/clear secret (TDD).** Replace the
+  handlers per §13.6; shrink the DTOs; update `server.rs` routes; remove the
+  access-profile, create/update/delete and test routes.
+  - Test: 401 without session; CSRF on `PUT`/`DELETE`; list reflects config and
+    `is_set`; undeclared command or secret name returns 404; empty or oversized
+    value rejected; secret values never in any response or `Debug`; removed
+    routes return 404/405.
+  - Demo: API integration tests green.
+
+- [ ] **Task 15: Frontend: read-only triggers table with secret actions (TDD for
+  helpers).** Rewrite `pages/triggers.rs` like the Webhook endpoints card;
+  delete `trigger_edit.rs`, `triggers_form.rs`, `access_profiles.rs`, their
+  routes and the nav entry.
+  - Test: unit tests for the set-secret request mapping and display helpers;
+    wasm/`trunk build` succeeds.
+  - Demo: in-browser, config triggers are listed read-only and a secret can be
+    set and cleared; the value is never shown after saving.
+
+- [ ] **Task 16: Docs and example config.** Document `triggers:` and
+  `access_profiles:` in `docs/configuration.md` and `config.example.yaml`
+  (including the never-put-credentials-in-YAML warning); update `README` /
+  `CHANGELOG`; update `docs/webhooks.md`-style trigger docs if present; mark §13
+  as the current design in §4 and §9.
+  - Test: the example config passes the validation test from Task 11.
+  - Demo: the example config starts the server.
+
+- [ ] **Task 17: Hardening and verification.** Full `cargo test`,
+  `cargo clippy --all-targets --all-features -D warnings`, `cargo fmt --check`,
+  `cargo deny check`, wasm build, all in the devcontainer. Manual end-to-end:
+  declare a trigger with a secret in YAML, set the secret in the UI, run the
+  command from Matrix, then restart with the trigger removed and confirm the
+  command is unknown.
+  - Demo: green devcontainer run plus the documented manual end-to-end.
