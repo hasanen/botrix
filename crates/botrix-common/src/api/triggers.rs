@@ -76,6 +76,49 @@ pub struct TriggerDto {
     pub secrets: Vec<SecretStatusDto>,
 }
 
+/// A config-defined command trigger as shown by `GET /api/v1/triggers`.
+///
+/// Read-only: triggers are defined in the YAML config. Only secret values can
+/// be changed through the API, and they never appear in any response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TriggerInfo {
+    /// Lowercase command word.
+    pub command: String,
+    /// Human-readable description shown by `help`.
+    pub description: String,
+    /// Whether the command is active.
+    pub enabled: bool,
+    /// HTTP method used for the webhook call.
+    pub method: String,
+    /// Webhook URL.
+    pub url: String,
+    /// Names of the configured outbound headers (values are not returned).
+    pub header_names: Vec<String>,
+    /// Name of the referenced access profile, if any.
+    pub access_profile: Option<String>,
+    /// Effective allowed room IDs after applying the profile (empty means any).
+    pub allowed_rooms: Vec<String>,
+    /// Effective allowed user IDs after applying the profile (empty means any).
+    pub allowed_users: Vec<String>,
+    /// Declared secrets and whether each has a stored value.
+    pub secrets: Vec<SecretStatusDto>,
+}
+
+/// Request body for `PUT /api/v1/triggers/{command}/secrets/{name}`.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecretSetRequest {
+    /// The new plaintext secret value. Write-only.
+    pub value: String,
+}
+
+impl std::fmt::Debug for SecretSetRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SecretSetRequest")
+            .field("value", &"[redacted]")
+            .finish()
+    }
+}
+
 /// A secret change in a trigger create/update request.
 ///
 /// `value: None` with `clear: false` leaves the stored secret unchanged.
@@ -222,6 +265,51 @@ mod tests {
             .collect();
         keys.sort_unstable();
 
+        assert_eq!(keys, ["is_set", "name"]);
+    }
+
+    #[test]
+    fn secret_set_request_debug_redacts_the_value() {
+        // Arrange
+        let request = SecretSetRequest {
+            value: SECRET.into(),
+        };
+
+        // Act
+        let debug = format!("{request:?}");
+
+        // Assert
+        assert!(debug.contains("[redacted]"));
+        assert!(!debug.contains(SECRET), "leaked secret: {debug}");
+    }
+
+    #[test]
+    fn trigger_info_serializes_no_secret_value_key() {
+        let info = TriggerInfo {
+            command: "deploy".into(),
+            description: "d".into(),
+            enabled: true,
+            method: "POST".into(),
+            url: "https://example.com".into(),
+            header_names: vec!["Authorization".into()],
+            access_profile: None,
+            allowed_rooms: vec![],
+            allowed_users: vec![],
+            secrets: vec![SecretStatusDto {
+                name: "TOKEN".into(),
+                is_set: true,
+            }],
+        };
+
+        let value = serde_json::to_value(&info).unwrap();
+
+        let mut keys: Vec<&str> = value["secrets"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
         assert_eq!(keys, ["is_set", "name"]);
     }
 

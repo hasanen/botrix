@@ -696,7 +696,7 @@ Each task: tests first (Arrange, Act, Assert, observable behavior), then
 implementation; all cargo/trunk commands in the devcontainer; one commit per
 task. No new dependencies.
 
-- [ ] **Task 11: Config types and validation (TDD).** Add `TriggerConfig` and
+- [x] **Task 11: Config types and validation (TDD).** Add `TriggerConfig` and
   `AccessProfileConfig` to `botrix-common/src/config.rs` (`#[serde(default)]`
   maps on `Config`). Add the §13.4 rules to `config/validate.rs`.
   - Test: valid config parses; each invalid rule returns its typed
@@ -706,7 +706,13 @@ task. No new dependencies.
     `Authorization` value); a config with no `triggers` key still loads.
   - Demo: `cargo test -p botrix-server config` passes.
 
-- [ ] **Task 12: Secret persistence keyed by command (TDD).** Add migration
+> **Note on Tasks 12-14:** migration `0003` drops the tables the handler, authz,
+> help and API queried, so these three could not each leave a green build. They
+> landed as one commit (backend switch). The old trigger/profile DTOs stay in
+> `botrix-common` until Task 15 so the frontend keeps compiling; the old UI
+> calls removed routes in the meantime.
+
+- [x] **Task 12: Secret persistence keyed by command (TDD).** Add migration
   `0003` (§13.5) and register it. Rewrite `db/triggers.rs` to secret queries by
   `(command, name)`; delete `db/access_profiles.rs` and the unused row structs.
   - Test: migration applies on a fresh and on a `0002`-migrated DB and leaves
@@ -714,7 +720,7 @@ task. No new dependencies.
     survive; `Debug` still redacts ciphertext.
   - Demo: DB tests green.
 
-- [ ] **Task 13: Handler, authz and help read from config (TDD).** Add
+- [x] **Task 13: Handler, authz and help read from config (TDD).** Add
   `config: Arc<Config>` to `HandlerContext`; look up triggers, profiles and
   headers from it; load secret values by command; adapt `authz.rs` and
   `help.rs` to the config types. Reply texts are unchanged.
@@ -725,7 +731,7 @@ task. No new dependencies.
     error and no secret value in logs.
   - Demo: `cargo test -p botrix-server triggers` passes.
 
-- [ ] **Task 14: API: list triggers, set/clear secret (TDD).** Replace the
+- [x] **Task 14: API: list triggers, set/clear secret (TDD).** Replace the
   handlers per §13.6; shrink the DTOs; update `server.rs` routes; remove the
   access-profile, create/update/delete and test routes.
   - Test: 401 without session; CSRF on `PUT`/`DELETE`; list reflects config and

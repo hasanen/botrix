@@ -4,15 +4,15 @@
 //! profile's list for that dimension. Each dimension (room, user) passes when
 //! its effective list is empty or contains the id; both must pass.
 
-use crate::db::models::{AccessProfile, CommandTrigger};
+use botrix_common::config::{AccessProfileConfig, TriggerConfig};
 
 /// Resolves the effective `(rooms, users)` allowlists for a trigger.
 ///
 /// For each dimension, a non-empty inline list wins; otherwise the profile's
 /// list is used, or empty when there is no profile.
 pub fn effective_allowlists(
-    trigger: &CommandTrigger,
-    profile: Option<&AccessProfile>,
+    trigger: &TriggerConfig,
+    profile: Option<&AccessProfileConfig>,
 ) -> (Vec<String>, Vec<String>) {
     fn pick(inline: &[String], from_profile: Option<&Vec<String>>) -> Vec<String> {
         if !inline.is_empty() {
@@ -31,8 +31,8 @@ pub fn effective_allowlists(
 ///
 /// Room and user checks are ANDed; an empty effective list is unrestricted.
 pub fn is_authorized(
-    trigger: &CommandTrigger,
-    profile: Option<&AccessProfile>,
+    trigger: &TriggerConfig,
+    profile: Option<&AccessProfileConfig>,
     room_id: &str,
     user_id: &str,
 ) -> bool {
@@ -45,31 +45,25 @@ pub fn is_authorized(
 mod tests {
     use super::*;
 
-    fn trigger(rooms: &[&str], users: &[&str]) -> CommandTrigger {
-        CommandTrigger {
-            id: 1,
-            command: "deploy".into(),
+    fn trigger(rooms: &[&str], users: &[&str]) -> TriggerConfig {
+        TriggerConfig {
             description: String::new(),
             enabled: true,
             method: "POST".into(),
             url: "https://example.com".into(),
+            headers: Default::default(),
+            secrets: Vec::new(),
             response_template: None,
-            access_profile_id: None,
+            access_profile: None,
             allowed_rooms: rooms.iter().map(|s| s.to_string()).collect(),
             allowed_users: users.iter().map(|s| s.to_string()).collect(),
-            created_at: 0,
-            updated_at: 0,
         }
     }
 
-    fn profile(rooms: &[&str], users: &[&str]) -> AccessProfile {
-        AccessProfile {
-            id: 1,
-            name: "p".into(),
+    fn profile(rooms: &[&str], users: &[&str]) -> AccessProfileConfig {
+        AccessProfileConfig {
             allowed_rooms: rooms.iter().map(|s| s.to_string()).collect(),
             allowed_users: users.iter().map(|s| s.to_string()).collect(),
-            created_at: 0,
-            updated_at: 0,
         }
     }
 

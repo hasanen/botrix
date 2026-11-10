@@ -1,22 +1,25 @@
 //! Runs a parsed bot command: authorization, webhook call, and reply text.
 //!
-//! This module has no Matrix SDK types; the caller supplies the parsed command
-//! and the message fields as plain strings and sends back the returned reply.
-//! Logged messages never contain secret values or webhook response bodies.
+//! Triggers, access profiles and headers come from the loaded configuration;
+//! only secret values are read from the database. This module has no Matrix
+//! SDK types; the caller supplies the parsed command and the message fields as
+//! plain strings and sends back the returned reply. Logged messages never
+//! contain secret values or webhook response bodies.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use botrix_common::config::{Config, TriggerConfig};
 use botrix_common::types::LogLevel;
 
 use crate::db::logs::{record, Component};
-use crate::db::models::{AccessProfile, CommandTrigger};
-use crate::db::{access_profiles, triggers, Pool};
+use crate::db::{triggers, Pool};
 use crate::matrix::command::ParsedCommand;
 use crate::matrix::crypto::decrypt_trigger_secret;
 
 use super::authz::is_authorized;
 use super::help::build_help;
+use super::lookup::{find_trigger, profile_for};
 use super::respond::render_reply;
 use super::webhook::{
     resolve_secrets, CommandPayload, WebhookCaller, WebhookError, WebhookRequest,
@@ -34,8 +37,10 @@ const HELP_COMMAND: &str = "help";
 /// Shared dependencies for handling commands.
 #[derive(Clone)]
 pub struct HandlerContext {
-    /// Database pool.
+    /// Database pool (holds the encrypted trigger secrets and the logs).
     pub pool: Pool,
+    /// The loaded configuration: triggers, access profiles and headers.
+    pub config: Arc<Config>,
     /// `BOTRIX_CRYPTO_PASSPHRASE`, used to decrypt trigger secrets. Never logged.
     pub crypto_passphrase: Arc<str>,
     /// Performs the webhook HTTP call.
@@ -66,39 +71,19 @@ pub async fn handle_command(
     };
 
     if parsed.command == HELP_COMMAND {
-        return match help_reply(ctx, msg) {
-            Ok(text) => text,
-            Err(e) => {
-                log(LogLevel::Error, "help failed", Some(&e));
-                REPLY_FAILED.to_owned()
-            }
-        };
+        return build_help(&ctx.config, &msg.room_id, &msg.sender);
     }
 
-    let trigger = match triggers::get_by_command(&ctx.pool, &parsed.command) {
-        Ok(Some(t)) if t.enabled => t,
-        Ok(_) => {
+    let (command, trigger) = match find_trigger(&ctx.config, &parsed.command) {
+        Some((command, trigger)) if trigger.enabled => (command, trigger),
+        _ => {
             log(LogLevel::Info, "unknown command", None);
             return REPLY_UNKNOWN.to_owned();
         }
-        Err(e) => {
-            log(
-                LogLevel::Error,
-                "trigger lookup failed",
-                Some(&e.to_string()),
-            );
-            return REPLY_FAILED.to_owned();
-        }
     };
 
-    let profile = match load_profile(&ctx.pool, &trigger) {
-        Ok(p) => p,
-        Err(e) => {
-            log(LogLevel::Error, "access profile lookup failed", Some(&e));
-            return REPLY_FAILED.to_owned();
-        }
-    };
-    if !is_authorized(&trigger, profile.as_ref(), &msg.room_id, &msg.sender) {
+    let profile = profile_for(&ctx.config, trigger);
+    if !is_authorized(trigger, profile, &msg.room_id, &msg.sender) {
         log(LogLevel::Warn, "unauthorized command", None);
         return REPLY_UNAUTHORIZED.to_owned();
     }
@@ -112,7 +97,7 @@ pub async fn handle_command(
         room_id: msg.room_id.clone(),
         event_id: msg.event_id.clone(),
     };
-    let request = match build_request(ctx, &trigger, &payload) {
+    let request = match build_request(ctx, &command, trigger, &payload) {
         Ok(r) => r,
         Err(e) => {
             log(LogLevel::Error, "command setup failed", Some(&e));
@@ -134,44 +119,31 @@ pub async fn handle_command(
     render_reply(&result, trigger.response_template.as_deref())
 }
 
-/// Builds the help text over all triggers.
-fn help_reply(ctx: &HandlerContext, msg: &IncomingMessage) -> Result<String, String> {
-    let all = triggers::list(&ctx.pool).map_err(|e| e.to_string())?;
-    let mut entries = Vec::with_capacity(all.len());
-    for t in all {
-        let profile = load_profile(&ctx.pool, &t)?;
-        entries.push((t, profile));
-    }
-    Ok(build_help(&entries, &msg.room_id, &msg.sender))
-}
-
-/// Loads the trigger's access profile, if it references one.
-fn load_profile(pool: &Pool, trigger: &CommandTrigger) -> Result<Option<AccessProfile>, String> {
-    match trigger.access_profile_id {
-        Some(id) => access_profiles::get_by_id(pool, id).map_err(|e| e.to_string()),
-        None => Ok(None),
-    }
-}
-
-/// Decrypts secrets, resolves header placeholders, and builds the request.
+/// Decrypts the declared secrets, resolves header placeholders, and builds the request.
 ///
-/// Errors are descriptions safe to log (secret names at most, never values).
-pub(crate) fn build_request(
+/// Only secrets declared on the trigger are read; stored values for names the
+/// config no longer declares are ignored. Errors are descriptions safe to log
+/// (secret names at most, never values).
+fn build_request(
     ctx: &HandlerContext,
-    trigger: &CommandTrigger,
+    command: &str,
+    trigger: &TriggerConfig,
     payload: &CommandPayload,
 ) -> Result<WebhookRequest, String> {
     let mut secrets = HashMap::new();
-    for s in triggers::list_secrets(&ctx.pool, trigger.id).map_err(|e| e.to_string())? {
+    for s in triggers::list_secrets(&ctx.pool, command).map_err(|e| e.to_string())? {
+        if !trigger.secrets.contains(&s.name) {
+            continue;
+        }
         let value = decrypt_trigger_secret(&ctx.crypto_passphrase, &s.ciphertext)
             .map_err(|_| format!("cannot decrypt secret {}", s.name))?;
         secrets.insert(s.name, value);
     }
 
-    let mut headers = Vec::new();
-    for h in triggers::list_headers(&ctx.pool, trigger.id).map_err(|e| e.to_string())? {
-        let value = resolve_secrets(&h.value, &secrets).map_err(|e: WebhookError| e.to_string())?;
-        headers.push((h.name, value));
+    let mut headers = Vec::with_capacity(trigger.headers.len());
+    for (name, template) in &trigger.headers {
+        let value = resolve_secrets(template, &secrets).map_err(|e: WebhookError| e.to_string())?;
+        headers.push((name.clone(), value));
     }
 
     let body = serde_json::to_value(payload).map_err(|e| e.to_string())?;
@@ -215,9 +187,9 @@ mod tests {
     use super::*;
     use crate::db::history::list_logs;
     use crate::db::test_pool;
-    use crate::db::triggers::TriggerInput;
     use crate::matrix::crypto::encrypt_trigger_secret;
     use crate::triggers::webhook::{FakeCaller, WebhookResponse};
+    use botrix_common::config::MatrixConfig;
 
     const PASS: &str = "test-passphrase";
     const SECRET: &str = "s3cr3t-value-xyz";
@@ -227,38 +199,57 @@ mod tests {
         fake: Arc<FakeCaller>,
     }
 
-    fn fixture() -> Fixture {
+    fn fixture(triggers: Vec<(&str, TriggerConfig)>) -> Fixture {
         let fake = Arc::new(FakeCaller::new());
+        let config = Config {
+            matrix: MatrixConfig {
+                homeserver: "https://matrix.example.com".to_owned(),
+                destinations: Default::default(),
+            },
+            webhooks: Default::default(),
+            triggers: triggers
+                .into_iter()
+                .map(|(name, t)| (name.to_owned(), t))
+                .collect(),
+            access_profiles: Default::default(),
+            server: Default::default(),
+        };
         let ctx = HandlerContext {
             pool: test_pool(),
+            config: Arc::new(config),
             crypto_passphrase: Arc::from(PASS),
             caller: fake.clone(),
         };
         Fixture { ctx, fake }
     }
 
-    fn add_trigger(
-        pool: &Pool,
-        command: &str,
-        enabled: bool,
-        template: Option<&str>,
-        rooms: &[String],
-    ) -> CommandTrigger {
-        triggers::create(
-            pool,
-            &TriggerInput {
-                command,
-                description: "Does a thing",
-                enabled,
-                method: "POST",
-                url: "https://example.com/hook",
-                response_template: template,
-                access_profile_id: None,
-                allowed_rooms: rooms,
-                allowed_users: &[],
-            },
-        )
-        .unwrap()
+    fn trig(enabled: bool, template: Option<&str>, rooms: &[&str]) -> TriggerConfig {
+        TriggerConfig {
+            description: "Does a thing".into(),
+            enabled,
+            method: "POST".into(),
+            url: "https://example.com/hook".into(),
+            headers: Default::default(),
+            secrets: Vec::new(),
+            response_template: template.map(String::from),
+            access_profile: None,
+            allowed_rooms: rooms.iter().map(|s| s.to_string()).collect(),
+            allowed_users: Vec::new(),
+        }
+    }
+
+    /// A trigger with an `Authorization` header built from the declared `TOKEN` secret.
+    fn trig_with_secret(template: Option<&str>) -> TriggerConfig {
+        let mut t = trig(true, template, &[]);
+        t.secrets = vec!["TOKEN".into()];
+        t.headers
+            .insert("Authorization".into(), "Bearer {{secret:TOKEN}}".into());
+        t
+    }
+
+    fn store_secret(pool: &Pool, command: &str, name: &str, value: &str) {
+        let cipher = encrypt_trigger_secret(PASS, value).unwrap();
+        triggers::upsert_secret(pool, command, name, &cipher).unwrap();
     }
 
     fn parsed(command: &str, arguments: &str) -> ParsedCommand {
@@ -300,23 +291,13 @@ mod tests {
         }
     }
 
-    fn add_secret_header(pool: &Pool, trigger_id: i64) {
-        let cipher = encrypt_trigger_secret(PASS, SECRET).unwrap();
-        triggers::upsert_secret(pool, trigger_id, "TOKEN", &cipher).unwrap();
-        triggers::set_headers(
-            pool,
-            trigger_id,
-            &[("Authorization".into(), "Bearer {{secret:TOKEN}}".into())],
-        )
-        .unwrap();
-    }
-
     #[tokio::test]
     async fn help_lists_visible_triggers() {
         // Arrange
-        let f = fixture();
-        add_trigger(&f.ctx.pool, "deploy", true, None, &[]);
-        add_trigger(&f.ctx.pool, "hidden", true, None, &["!other:x".to_string()]);
+        let f = fixture(vec![
+            ("deploy", trig(true, None, &[])),
+            ("hidden", trig(true, None, &["!other:x"])),
+        ]);
 
         // Act
         let reply = handle_command(&f.ctx, &parsed("help", ""), &message()).await;
@@ -329,7 +310,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_command_replies_and_logs() {
         // Arrange
-        let f = fixture();
+        let f = fixture(vec![]);
 
         // Act
         let reply = handle_command(&f.ctx, &parsed("nope", ""), &message()).await;
@@ -347,8 +328,7 @@ mod tests {
     #[tokio::test]
     async fn disabled_command_is_unknown() {
         // Arrange
-        let f = fixture();
-        add_trigger(&f.ctx.pool, "deploy", false, None, &[]);
+        let f = fixture(vec![("deploy", trig(false, None, &[]))]);
 
         // Act
         let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
@@ -362,8 +342,7 @@ mod tests {
     #[tokio::test]
     async fn unauthorized_replies_and_logs() {
         // Arrange
-        let f = fixture();
-        add_trigger(&f.ctx.pool, "deploy", true, None, &["!other:x".to_string()]);
+        let f = fixture(vec![("deploy", trig(true, None, &["!other:x"]))]);
 
         // Act
         let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
@@ -377,9 +356,8 @@ mod tests {
     #[tokio::test]
     async fn success_json_renders_template_and_resolves_secret() {
         // Arrange
-        let f = fixture();
-        let t = add_trigger(&f.ctx.pool, "deploy", true, Some("Got ${a.b}"), &[]);
-        add_secret_header(&f.ctx.pool, t.id);
+        let f = fixture(vec![("deploy", trig_with_secret(Some("Got ${a.b}")))]);
+        store_secret(&f.ctx.pool, "deploy", "TOKEN", SECRET);
         f.fake.push_response(ok(r#"{"a":{"b":"hello"}}"#));
 
         // Act
@@ -404,10 +382,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn literal_config_headers_are_sent_as_written() {
+        // Arrange
+        let mut t = trig(true, None, &[]);
+        t.headers.insert("X-Source".into(), "botrix".into());
+        let f = fixture(vec![("deploy", t)]);
+        f.fake.push_response(ok("done"));
+
+        // Act
+        handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
+
+        // Assert
+        assert_eq!(
+            f.fake.requests()[0].headers,
+            vec![("X-Source".to_string(), "botrix".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn command_matching_and_secret_lookup_are_case_insensitive() {
+        // Arrange: the config key is mixed case, secrets are stored lowercase.
+        let f = fixture(vec![("Deploy", trig_with_secret(None))]);
+        store_secret(&f.ctx.pool, "deploy", "TOKEN", SECRET);
+        f.fake.push_response(ok("done"));
+
+        // Act
+        let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
+
+        // Assert
+        assert_eq!(reply, "Command succeeded");
+        assert_eq!(
+            f.fake.requests()[0].headers,
+            vec![("Authorization".to_string(), format!("Bearer {SECRET}"))]
+        );
+    }
+
+    #[tokio::test]
     async fn success_non_json_replies_generic() {
         // Arrange
-        let f = fixture();
-        add_trigger(&f.ctx.pool, "deploy", true, Some("Got ${a.b}"), &[]);
+        let f = fixture(vec![("deploy", trig(true, Some("Got ${a.b}"), &[]))]);
         f.fake.push_response(ok("plain text"));
 
         // Act
@@ -420,9 +433,8 @@ mod tests {
     #[tokio::test]
     async fn webhook_error_replies_failed_and_logs() {
         // Arrange
-        let f = fixture();
-        let t = add_trigger(&f.ctx.pool, "deploy", true, None, &[]);
-        add_secret_header(&f.ctx.pool, t.id);
+        let f = fixture(vec![("deploy", trig_with_secret(None))]);
+        store_secret(&f.ctx.pool, "deploy", "TOKEN", SECRET);
         f.fake.push_error(WebhookError::Timeout);
 
         // Act
@@ -436,16 +448,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_secret_replies_failed_and_logs() {
-        // Arrange
-        let f = fixture();
-        let t = add_trigger(&f.ctx.pool, "deploy", true, None, &[]);
-        triggers::set_headers(
-            &f.ctx.pool,
-            t.id,
-            &[("Authorization".into(), "Bearer {{secret:NOPE}}".into())],
-        )
-        .unwrap();
+    async fn declared_secret_that_is_not_set_replies_failed_and_names_it_in_the_log() {
+        // Arrange: TOKEN is declared and used by a header, but no value is stored.
+        let f = fixture(vec![("deploy", trig_with_secret(None))]);
 
         // Act
         let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
@@ -453,6 +458,45 @@ mod tests {
         // Assert
         assert_eq!(reply, "Command failed");
         assert!(f.fake.requests().is_empty());
-        assert_eq!(logs(&f.ctx.pool).len(), 1);
+        let rows = logs(&f.ctx.pool);
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].2.clone().unwrap().contains("missing secret: TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn stored_values_for_undeclared_secret_names_are_ignored() {
+        // Arrange: the header references TOKEN, but the trigger does not declare
+        // it (config validation prevents this at startup). A stored TOKEN must
+        // not satisfy the placeholder.
+        let mut t = trig(true, None, &[]);
+        t.headers
+            .insert("Authorization".into(), "Bearer {{secret:TOKEN}}".into());
+        let f = fixture(vec![("deploy", t)]);
+        store_secret(&f.ctx.pool, "deploy", "TOKEN", SECRET);
+
+        // Act
+        let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
+
+        // Assert
+        assert_eq!(reply, "Command failed");
+        assert!(f.fake.requests().is_empty());
+        assert_no_secret_in_logs(&f.ctx.pool);
+    }
+
+    #[tokio::test]
+    async fn secrets_of_other_commands_are_not_used() {
+        // Arrange
+        let f = fixture(vec![
+            ("deploy", trig_with_secret(None)),
+            ("build", trig_with_secret(None)),
+        ]);
+        store_secret(&f.ctx.pool, "build", "TOKEN", SECRET);
+
+        // Act
+        let reply = handle_command(&f.ctx, &parsed("deploy", ""), &message()).await;
+
+        // Assert
+        assert_eq!(reply, "Command failed");
+        assert!(f.fake.requests().is_empty());
     }
 }
