@@ -59,6 +59,8 @@ async fn test_app() -> (Router, botrix_server::db::Pool) {
             destinations: HashMap::new(),
         },
         webhooks: HashMap::new(),
+        triggers: HashMap::new(),
+        access_profiles: HashMap::new(),
         server: botrix_common::config::ServerConfig {
             host: "127.0.0.1".to_owned(),
             port: 8080,

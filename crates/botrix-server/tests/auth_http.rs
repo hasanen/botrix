@@ -67,6 +67,8 @@ async fn test_app() -> (Router, botrix_server::db::Pool) {
             destinations: Default::default(),
         },
         webhooks: Default::default(),
+        triggers: Default::default(),
+        access_profiles: Default::default(),
         server: botrix_common::config::ServerConfig::default(),
     };
 

@@ -91,8 +91,85 @@ mod tests {
                 destinations: Default::default(),
             },
             webhooks: Default::default(),
+            triggers: Default::default(),
+            access_profiles: Default::default(),
             server: Default::default(),
         }
+    }
+
+    const BASE_YAML: &str = "matrix:\n  homeserver: https://matrix.example.com\n";
+
+    fn parse(extra: &str) -> Result<Config, serde_yaml::Error> {
+        serde_yaml::from_str(&format!("{BASE_YAML}{extra}"))
+    }
+
+    #[test]
+    fn config_without_triggers_or_profiles_still_parses() {
+        // Arrange / Act
+        let cfg = parse("").unwrap();
+
+        // Assert
+        assert!(cfg.triggers.is_empty());
+        assert!(cfg.access_profiles.is_empty());
+    }
+
+    #[test]
+    fn parses_triggers_and_profiles_with_defaults() {
+        // Arrange
+        let yaml = "\
+access_profiles:
+  ops:
+    allowed_rooms: [\"!ops:example.com\"]
+triggers:
+  deploy:
+    method: POST
+    url: https://ci.example.com/hook
+    headers:
+      Authorization: \"Bearer {{secret:TOKEN}}\"
+    secrets: [TOKEN]
+    access_profile: ops
+";
+
+        // Act
+        let cfg = parse(yaml).unwrap();
+
+        // Assert
+        let t = &cfg.triggers["deploy"];
+        assert!(t.enabled, "enabled defaults to true");
+        assert_eq!(t.description, "");
+        assert_eq!(t.secrets, ["TOKEN"]);
+        assert_eq!(t.headers["Authorization"], "Bearer {{secret:TOKEN}}");
+        assert_eq!(t.access_profile.as_deref(), Some("ops"));
+        assert!(t.allowed_rooms.is_empty() && t.allowed_users.is_empty());
+        assert_eq!(
+            cfg.access_profiles["ops"].allowed_rooms,
+            ["!ops:example.com"]
+        );
+        assert!(validate::validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_trigger_keys_so_typos_cannot_drop_restrictions() {
+        // Arrange: `allowed_room` (singular) is a typo for `allowed_rooms`.
+        let yaml = "\
+triggers:
+  deploy:
+    method: POST
+    url: https://ci.example.com/hook
+    allowed_room: [\"!ops:example.com\"]
+";
+
+        // Act
+        let result = parse(yaml);
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_access_profile_keys() {
+        let result = parse("access_profiles:\n  ops:\n    allowed_user: [\"@a:b.c\"]\n");
+        assert!(result.is_err());
     }
 
     #[test]

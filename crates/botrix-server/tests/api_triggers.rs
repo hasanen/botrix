@@ -74,6 +74,8 @@ async fn test_app_with_fake() -> (
             destinations,
         },
         webhooks: HashMap::new(),
+        triggers: HashMap::new(),
+        access_profiles: HashMap::new(),
         server: botrix_common::config::ServerConfig {
             host: "127.0.0.1".to_owned(),
             port: 8080,

@@ -335,6 +335,8 @@ mod tests {
                 destinations,
             },
             webhooks: HashMap::new(),
+            triggers: HashMap::new(),
+            access_profiles: HashMap::new(),
             server: ServerConfig::default(),
         }
     }
