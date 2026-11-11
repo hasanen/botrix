@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Command triggers: mention the bot in a Matrix room to call an outbound webhook and reply with the result.
-- Access profiles to control who can run which triggers.
-- Triggers and access profiles REST API, plus list and edit pages in the web UI.
+- Command triggers: mention the bot in a Matrix room to call an outbound webhook and reply with the result. Triggers are defined under `triggers` in the YAML config.
+- Access profiles under `access_profiles` in the config, to control who can run which triggers.
+- Triggers page in the web UI that lists the config-defined triggers and sets or clears their secret values, with `GET /api/v1/triggers` and `PUT`/`DELETE /api/v1/triggers/{command}/secrets/{name}`.
+- Config validation for triggers, including a check that credential headers such as `Authorization` use a `{{secret:NAME}}` placeholder.
 - SSRF-guarded outbound webhook caller.
 - Encrypted trigger secrets, using a separate key derivation label.
 - Dependabot configuration.

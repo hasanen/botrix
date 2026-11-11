@@ -13,7 +13,8 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 - **Dynamic webhook routing** — one endpoint, unlimited integrations defined in YAML
 - **Simple template syntax** — map JSON payload fields to message text with `${variable}`
 - **End-to-end encryption** — sends messages to encrypted Matrix rooms (E2EE)
-- **Web UI** — manage connections, tokens, and notification history from a browser
+- **Command triggers** — mention the bot in a room to call an HTTP webhook and get the result back, with triggers defined in YAML
+- **Web UI** — manage connections, tokens, trigger secrets, and notification history from a browser
 - **Single container** — one OCI image, no external services required
 
 ## Get started
@@ -26,6 +27,7 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 
 - [Configuration reference](configuration.md) — YAML config, environment variables
 - [Webhook integrations](webhooks.md) — template syntax, examples, response codes
+- [Command triggers](triggers.md) — commands, secrets, access control, replies
 - [Matrix setup](matrix-setup.md) — connecting an account, E2EE, room management
 - [Deployment guide](deployment.md) — container setup, backup, reverse proxy
 - [Development](development.md) — devcontainer, checks, running locally

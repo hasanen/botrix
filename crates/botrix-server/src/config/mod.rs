@@ -172,6 +172,55 @@ triggers:
         assert!(result.is_err());
     }
 
+    /// The first fenced `yaml` block of `markdown`.
+    fn first_yaml_block(markdown: &str) -> &str {
+        let after_fence = markdown
+            .split_once("```yaml\n")
+            .expect("document has a yaml block")
+            .1;
+        after_fence
+            .split_once("```")
+            .expect("yaml block is closed")
+            .0
+    }
+
+    fn assert_documents_a_valid_trigger_setup(cfg: &Config) {
+        validate::validate(cfg).expect("example config must be valid");
+        let deploy = cfg
+            .triggers
+            .get("deploy")
+            .expect("example defines a `deploy` trigger");
+        assert!(
+            !deploy.secrets.is_empty(),
+            "example shows how to declare secrets"
+        );
+        assert!(
+            deploy.headers.values().any(|v| v.contains("{{secret:")),
+            "example shows a header that uses a secret"
+        );
+        assert!(
+            deploy.access_profile.is_some() && !cfg.access_profiles.is_empty(),
+            "example shows an access profile"
+        );
+    }
+
+    #[test]
+    fn config_example_file_is_valid_and_documents_triggers() {
+        let cfg: Config =
+            serde_yaml::from_str(include_str!("../../../../config.example.yaml")).unwrap();
+
+        assert_documents_a_valid_trigger_setup(&cfg);
+    }
+
+    #[test]
+    fn configuration_doc_full_example_is_valid_and_documents_triggers() {
+        let doc = include_str!("../../../../docs/configuration.md");
+
+        let cfg: Config = serde_yaml::from_str(first_yaml_block(doc)).unwrap();
+
+        assert_documents_a_valid_trigger_setup(&cfg);
+    }
+
     #[test]
     fn env_sets_public_url_when_file_has_none() {
         let mut c = config();

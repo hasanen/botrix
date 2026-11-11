@@ -1,10 +1,12 @@
 # Botrix – Dynamic Matrix Command Triggers
 
-> **Status:** In progress. Tasks 1-10 are implemented as originally designed
-> (UI-managed, DB-backed). **Revision proposed in
-> [§13](#13-revision-yaml-defined-triggers-proposed): define triggers and access
-> profiles in YAML (version-controlled, read into memory at startup) and keep
-> only headers and secrets in the UI/DB. Pending review; tasks 11-17.**
+> **Status:** In progress. Tasks 1-10 were built as originally designed
+> (UI-managed, DB-backed). **[§13](#13-revision-yaml-defined-triggers-proposed)
+> is the current design:** triggers, access profiles, headers and secret names
+> are defined in YAML (version-controlled, read into memory at startup); the UI
+> only lists triggers and sets secret values, like the webhooks page. Tasks
+> 11-16 are done; task 17 (final verification) is pending. Sections 4-9 describe
+> the original design where §13 says they are superseded.
 > **Scope:** Add command triggers that let a Matrix user mention the
 > bot to invoke an external HTTP webhook and get the response back in the room.
 
@@ -118,8 +120,9 @@ client of its own.
 
 ## 4. Design Decisions
 
-> **Decisions 1, 2, 5 and 6 are superseded by [§13](#13-revision-yaml-defined-triggers-proposed)
-> if the revision is approved.**
+> **Decisions 1, 2, 5 and 6 are superseded by [§13](#13-revision-yaml-defined-triggers-proposed).**
+> Triggers and profiles are now YAML-defined and held in memory; only secret
+> values are stored in the database, keyed by command and name.
 
 1. **Triggers are DB-backed, not YAML.** The requirement is explicit:
    UI-managed, hot-reloading, no restart. This differs from the existing YAML
@@ -290,8 +293,11 @@ with a custom `Debug`/serialization that never includes secret values.
   webhooks/destinations/notifications keep working.
 - New `Component::Trigger` variant added to the logs component enum.
 - reqwest + ipnet promoted to direct deps (no new crates in the tree).
-- No config-file schema change required for triggers (they live in the DB). Bot
-  identity continues to come from the connected session.
+- ~~No config-file schema change required for triggers (they live in the DB).~~
+  Superseded by [§13](#13-revision-yaml-defined-triggers-proposed): the config
+  gains optional `triggers` and `access_profiles` sections (existing configs
+  keep working), and migration `0003` drops the trigger tables. Bot identity
+  continues to come from the connected session.
 
 ---
 
@@ -481,8 +487,8 @@ recorded here per the dependency-review rule.
 
 ## 13. Revision: YAML-defined triggers (proposed)
 
-> **Status:** Proposal, pending review. Nothing below is implemented.
-> If approved, it supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
+> **Status:** Approved and implemented (tasks 11-16); task 17 is pending.
+> It supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
 > `access_profiles` / `trigger_headers` parts of §5, the CRUD parts of §6, the
 > UI in task 9, and the "no config schema change" line in §9.
 
@@ -749,7 +755,7 @@ task. No new dependencies.
   - Demo: in-browser, config triggers are listed read-only and a secret can be
     set and cleared; the value is never shown after saving.
 
-- [ ] **Task 16: Docs and example config.** Document `triggers:` and
+- [x] **Task 16: Docs and example config.** Document `triggers:` and
   `access_profiles:` in `docs/configuration.md` and `config.example.yaml`
   (including the never-put-credentials-in-YAML warning); update `README` /
   `CHANGELOG`; update `docs/webhooks.md`-style trigger docs if present; mark §13
