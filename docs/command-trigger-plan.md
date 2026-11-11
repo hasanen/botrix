@@ -770,3 +770,10 @@ task. No new dependencies.
   command from Matrix, then restart with the trigger removed and confirm the
   command is unknown.
   - Demo: green devcontainer run plus the documented manual end-to-end.
+  - Progress: the automated checks are done and green (fmt, workspace clippy
+    with `-D warnings`, wasm clippy, `trunk build`, full workspace tests, and
+    `cargo deny check`: advisories, bans, licenses and sources ok). A smoke test
+    of the real server binary on a fresh data dir also passed: migrations 1-3
+    apply, a bad config (literal `Authorization`) is refused at startup, and
+    list/set/clear secret work over HTTP. **Still pending: the manual
+    end-to-end through a connected Matrix account.**
