@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documentation examples for using secrets in trigger headers: a Bearer token, an API key header, HTTP Basic authentication, and several secrets in one trigger. The page also lists the rules and what happens on common mistakes.
+
 ## [1.0.0] - 2026-11-11
 
 ### Added

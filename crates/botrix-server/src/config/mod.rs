@@ -221,6 +221,58 @@ triggers:
         assert_documents_a_valid_trigger_setup(&cfg);
     }
 
+    /// Every fenced `yaml` block of `markdown`, in order.
+    fn yaml_blocks(markdown: &str) -> Vec<&str> {
+        markdown
+            .split("```yaml\n")
+            .skip(1)
+            .map(|rest| rest.split_once("```").expect("yaml block is closed").0)
+            .collect()
+    }
+
+    #[test]
+    fn every_yaml_example_in_the_triggers_doc_is_a_valid_config() {
+        // Arrange: examples are fragments, so give each the required `matrix` section.
+        let doc = include_str!("../../../../docs/triggers.md");
+        let blocks = yaml_blocks(doc);
+
+        // Act + Assert
+        assert!(!blocks.is_empty());
+        for block in &blocks {
+            let cfg: Config = parse(block)
+                .unwrap_or_else(|e| panic!("example does not parse: {e}\n---\n{block}"));
+            validate::validate(&cfg)
+                .unwrap_or_else(|e| panic!("example is invalid: {e}\n---\n{block}"));
+        }
+    }
+
+    #[test]
+    fn the_triggers_doc_shows_secrets_in_headers_in_several_ways() {
+        let doc = include_str!("../../../../docs/triggers.md");
+
+        let with_secret_header: Vec<&str> = yaml_blocks(doc)
+            .into_iter()
+            .filter(|block| block.contains("{{secret:"))
+            .collect();
+        let joined = with_secret_header.join("\n");
+
+        assert!(
+            with_secret_header.len() >= 4,
+            "expected at least 4 examples with a secret header, found {}",
+            with_secret_header.len()
+        );
+        assert!(
+            joined.contains("Bearer {{secret:"),
+            "no Bearer token example"
+        );
+        assert!(joined.contains("X-Api-Key:"), "no API key header example");
+        assert!(joined.contains("Basic {{secret:"), "no Basic auth example");
+        assert!(
+            joined.matches("{{secret:").count() > with_secret_header.len(),
+            "no example with more than one secret"
+        );
+    }
+
     #[test]
     fn env_sets_public_url_when_file_has_none() {
         let mut c = config();

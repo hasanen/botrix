@@ -107,7 +107,7 @@ The key is the command word. It must not contain whitespace, it is matched case-
 | `enabled` | No | Whether the command runs (default: `true`) |
 | `method` | Yes | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, in uppercase |
 | `url` | Yes | An `http` or `https` URL with a host |
-| `headers` | No | Map of header name to value. Values may use `{{secret:NAME}}` placeholders. |
+| `headers` | No | Map of header name to value. Values may use `{{secret:NAME}}` placeholders; see [Using secrets in headers](triggers.md#using-secrets-in-headers) for examples. |
 | `secrets` | No | Names of the secrets this trigger uses (letters, digits, `_` and `-`). Set the values in the web UI. |
 | `response_template` | No | Template for the reply, rendered from the JSON response. Without it, the reply is a short success or failure notice. |
 | `access_profile` | No | Name of an entry in `access_profiles` |

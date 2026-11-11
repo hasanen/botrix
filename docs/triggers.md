@@ -44,6 +44,101 @@ Then open **Triggers** in the web UI and use **Set value** next to `TOKEN`. Unti
 - A header value can combine text and placeholders, for example `Bearer {{secret:TOKEN}}`.
 - Renaming a secret or a command in the config leaves the old stored value unused in the database. Setting the old name again later picks it up.
 
+## Using secrets in headers
+
+Anything an API needs to keep private, such as a token, key or password, goes in a header as a secret. Setting one up takes three steps:
+
+1. List the secret's name under `secrets`.
+2. Use it in a header value as `{{secret:NAME}}`.
+3. Open the **Triggers** page, click **Set value** next to the name, and paste the value.
+
+Botrix puts the stored value in place when the command runs. The text around the placeholder stays as you wrote it.
+
+### Bearer token
+
+The most common case. The secret holds only the token, because `Bearer ` is part of the header text in the config.
+
+```yaml
+triggers:
+  deploy:
+    description: Deploy a service
+    method: POST
+    url: https://ci.example.com/hooks/deploy
+    headers:
+      Authorization: "Bearer {{secret:TOKEN}}"
+    secrets: [TOKEN]
+```
+
+### API key in a custom header
+
+Some services expect the key in a header of their own instead of `Authorization`.
+
+```yaml
+triggers:
+  restart:
+    description: Restart the app
+    method: POST
+    url: https://api.example.com/v1/restart
+    headers:
+      X-Api-Key: "{{secret:API_KEY}}"
+    secrets: [API_KEY]
+```
+
+### HTTP Basic authentication
+
+Basic authentication sends `user:password` encoded as Base64. Botrix inserts the value exactly as stored and does not encode anything, so put the **encoded** value in the secret. Encode it yourself on your own machine, as a single line:
+
+```bash
+printf '%s' 'user:password' | base64
+```
+
+Use `printf` rather than `echo`, because `echo` adds a newline that ends up inside the encoded value. Then paste the result as the secret's value:
+
+```yaml
+triggers:
+  backup:
+    description: Start a backup
+    method: POST
+    url: https://backup.example.com/run
+    headers:
+      Authorization: "Basic {{secret:BASIC_CREDENTIALS}}"
+    secrets: [BASIC_CREDENTIALS]
+```
+
+### Several secrets and plain headers
+
+A trigger can declare as many secrets as it needs. One secret can be used in several headers, and one header value can contain several placeholders. Headers that hold nothing private are written out in full.
+
+```yaml
+triggers:
+  sync:
+    description: Sync the data
+    method: POST
+    url: https://api.example.com/v1/sync
+    headers:
+      Authorization: "Bearer {{secret:TOKEN}}"
+      X-Client: "{{secret:CLIENT_ID}}:{{secret:CLIENT_SECRET}}"
+      Accept: application/json
+      X-Source: botrix
+    secrets: [TOKEN, CLIENT_ID, CLIENT_SECRET]
+```
+
+### Rules
+
+- Secret names use letters, digits, `_` and `-`, and are case-sensitive: `{{secret:token}}` does not match `TOKEN`.
+- Every placeholder must name a secret listed under `secrets` for that trigger.
+- The headers `Authorization`, `Proxy-Authorization`, `Cookie` and `X-Api-Key` must contain a placeholder. A literal value there stops Botrix from starting, so a credential cannot be committed by accident. Botrix cannot recognise a credential under another header name such as `X-Auth-Token`, so use a placeholder for those yourself.
+- Paste the value as it is, without quotes or surrounding spaces. It is inserted exactly as stored. A stored value that itself contains `{{secret:...}}` is not expanded again.
+- To rotate a secret, use **Set value** again. The next command uses the new value and nothing needs a restart. **Clear** removes it, and commands that use it fail until a new value is set.
+
+### When something is wrong
+
+| Mistake | What happens |
+|---|---|
+| A header uses `{{secret:NAME}}` but `NAME` is not under `secrets`, or the case differs | Botrix refuses to start and names the trigger, the header and the secret |
+| `Authorization`, `Cookie` or another credential header has a literal value | Botrix refuses to start and names the header |
+| The secret is declared but has no value yet | The command replies `Command failed`. The Logs page shows `command setup failed` with `missing secret: NAME`. |
+
 ## How a message becomes a command
 
 A message is a command when the bot is mentioned in it and the text starts with that mention. The first word after the mention is the command, matched case-insensitively. Everything after it is passed on as arguments.

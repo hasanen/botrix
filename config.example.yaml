@@ -51,6 +51,8 @@ access_profiles:
 # Never put credentials in this file. Declare the secret names under `secrets`,
 # reference them in header values as {{secret:NAME}}, and set the values in the
 # web UI (Triggers page). Values are stored encrypted in the database.
+# More header examples (API key, Basic auth, several secrets):
+# https://hasanen.github.io/botrix/triggers#using-secrets-in-headers
 triggers:
   deploy:
     description: Deploy a service
