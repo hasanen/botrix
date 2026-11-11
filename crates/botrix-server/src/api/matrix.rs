@@ -7,13 +7,13 @@
 //! - `POST /api/v1/matrix/disconnect`   — clear the session
 //! - `POST /api/v1/matrix/rooms/:name/join` — accept a room invitation
 //! - `POST /api/v1/matrix/test-message` — deliver a test message
-//! - `POST /api/v1/matrix/recovery-key` — submit the E2EE recovery key (TODO)
+//! - `POST /api/v1/matrix/recovery-key` — submit the E2EE recovery key
 //!
 //! Login uses the OAuth 2.0 Authorization Code flow (plan §9.3, redirect
 //! variant): `connect` returns the homeserver authorization URL; the operator
 //! logs in there; the homeserver redirects to `callback`, which completes the
-//! login and persists the session. E2EE recovery (`recovery-key`) is still a
-//! stub pending a live homeserver (§9.5).
+//! login and persists the session. E2EE recovery (`recovery-key`) imports the
+//! account's recovery key into the local crypto store (§9.5).
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;

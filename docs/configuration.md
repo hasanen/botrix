@@ -74,7 +74,7 @@ server:
 |---|---|---|
 | `homeserver` | Yes | HTTPS URL of your Matrix homeserver |
 
-> The Matrix account (user ID) is connected through the web UI using OAuth Device Authorization Grant — it is not configured here. See [Matrix setup](matrix-setup.md).
+> The Matrix account (user ID) is connected through the web UI using an OAuth login — it is not configured here. See [Matrix setup](matrix-setup.md).
 
 ### `matrix.destinations`
 

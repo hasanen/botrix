@@ -6,9 +6,9 @@ nav_order: 5
 
 # Matrix setup
 
-> **Status:** account connection (the redirect login below), destinations, invitations, test messages and disconnecting are implemented. The **encryption recovery-key** step is still a stub: until it lands, Botrix can send to unencrypted rooms but not to end-to-end-encrypted ones.
+> **Status:** account connection (the redirect login below), destinations, invitations, test messages, disconnecting and the encryption recovery-key import are implemented. Without the recovery key, Botrix can send to unencrypted rooms but not to end-to-end-encrypted ones.
 
-Botrix connects to Matrix using OAuth 2.0 Device Authorization Grant. Authentication is done through the web UI — you never need to put passwords or tokens in configuration files.
+Botrix connects to Matrix using the OAuth 2.0 Authorization Code (redirect) flow. Authentication is done through the web UI — you never need to put passwords or tokens in configuration files.
 
 ## Requirements
 
