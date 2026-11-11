@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-11
+
 ### Added
 
 - Command triggers: mention the bot in a Matrix room to call an outbound webhook and reply with the result. Triggers are defined under `triggers` in the YAML config.
@@ -60,5 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secrets are redacted from `Debug` output of credential-bearing types.
 - The 64 KiB body limit is enforced on API routes.
 
-[Unreleased]: https://github.com/hasanen/botrix/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/hasanen/botrix/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/hasanen/botrix/compare/v0.1.0...v1.0.0
 [0.1.0]: https://github.com/hasanen/botrix/releases/tag/v0.1.0

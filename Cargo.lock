@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "botrix-common"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "botrix-frontend"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "botrix-common",
  "console_error_panic_hook",
@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "botrix-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
