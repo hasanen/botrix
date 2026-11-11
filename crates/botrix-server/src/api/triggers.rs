@@ -21,7 +21,7 @@ use tower_sessions::Session;
 
 use super::csrf::verify_csrf;
 use super::error::ApiError;
-use crate::db::logs::{record, Component};
+use crate::db::logs::{command_tag, record, Component};
 use crate::db::triggers as db_triggers;
 use crate::matrix::crypto::encrypt_trigger_secret;
 use crate::session;
@@ -128,7 +128,7 @@ pub async fn set_secret(
         LogLevel::Info,
         Component::Trigger,
         "secret set",
-        Some(&format!("command={key} secret={name}")),
+        Some(&format!("{}secret={name}", command_tag(&key))),
     );
 
     Ok(Json(SecretStatusDto { name, is_set: true }))
@@ -154,7 +154,7 @@ pub async fn delete_secret(
             LogLevel::Info,
             Component::Trigger,
             "secret cleared",
-            Some(&format!("command={key} secret={name}")),
+            Some(&format!("{}secret={name}", command_tag(&key))),
         );
     }
 

@@ -593,3 +593,94 @@ async fn trigger_and_profile_crud_routes_no_longer_exist() {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{method} {uri}");
     }
 }
+
+// ---- GET /api/v1/logs filters ----
+
+async fn logs(app: &Router, jar: &Jar, query: &str) -> Value {
+    let uri = format!("/api/v1/logs{query}");
+    let resp = send(app, Some(jar), "GET", &uri, None, None).await;
+    assert_eq!(resp.status(), StatusCode::OK, "{uri}");
+    body_json(resp).await
+}
+
+fn messages(logs: &Value) -> Vec<&str> {
+    logs["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["message"].as_str().unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn logs_can_be_filtered_by_command_and_component() {
+    // Arrange: two events for `deploy` (secret set and cleared) and one for `build`.
+    let (app, pool) = test_app().await;
+    let (jar, csrf) = session(&app).await;
+    put_secret(&app, &jar, &csrf, "deploy", "TOKEN", PLAINTEXT).await;
+    send(
+        &app,
+        Some(&jar),
+        "DELETE",
+        &secret_uri("deploy", "TOKEN"),
+        Some(&csrf),
+        None,
+    )
+    .await;
+    botrix_server::db::logs::record(
+        &pool,
+        botrix_common::types::LogLevel::Info,
+        botrix_server::db::logs::Component::Trigger,
+        "command succeeded",
+        Some(&format!(
+            "{}sender=@a:x room=!r:x",
+            botrix_server::db::logs::command_tag("build")
+        )),
+    );
+
+    // Act
+    let deploy = logs(&app, &jar, "?command=deploy").await;
+    let deploy_upper = logs(&app, &jar, "?command=DEPLOY&component=trigger").await;
+    let build = logs(&app, &jar, "?command=build").await;
+    let trigger_component = logs(&app, &jar, "?component=trigger").await;
+    let none = logs(&app, &jar, "?command=nope").await;
+
+    // Assert: newest first, and the total counts only the matches.
+    assert_eq!(messages(&deploy), ["secret cleared", "secret set"]);
+    assert_eq!(deploy["total"], 2);
+    assert_eq!(messages(&deploy_upper), ["secret cleared", "secret set"]);
+    assert_eq!(messages(&build), ["command succeeded"]);
+    assert_eq!(trigger_component["total"], 3);
+    assert!(messages(&none).is_empty());
+    assert_eq!(none["total"], 0);
+}
+
+#[tokio::test]
+async fn empty_log_filters_are_ignored_and_pagination_still_applies() {
+    // Arrange
+    let (app, _pool) = test_app().await;
+    let (jar, csrf) = session(&app).await;
+    for value in ["a", "b", "c"] {
+        put_secret(&app, &jar, &csrf, "deploy", "TOKEN", value).await;
+    }
+
+    // Act
+    let unfiltered = logs(&app, &jar, "").await;
+    let blank = logs(&app, &jar, "?component=&command=").await;
+    let paged = logs(&app, &jar, "?command=deploy&per_page=2&page=2").await;
+
+    // Assert
+    assert_eq!(blank["total"], unfiltered["total"]);
+    assert_eq!(paged["total"], 3);
+    assert_eq!(paged["items"].as_array().unwrap().len(), 1);
+    assert_eq!(paged["page"], 2);
+}
+
+#[tokio::test]
+async fn filtered_logs_still_require_authentication() {
+    let (app, _pool) = test_app().await;
+
+    let resp = send(&app, None, "GET", "/api/v1/logs?command=deploy", None, None).await;
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}

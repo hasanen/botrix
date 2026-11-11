@@ -12,7 +12,7 @@ use std::sync::Arc;
 use botrix_common::config::{Config, TriggerConfig};
 use botrix_common::types::LogLevel;
 
-use crate::db::logs::{record, Component};
+use crate::db::logs::{command_tag, record, Component};
 use crate::db::{triggers, Pool};
 use crate::matrix::command::ParsedCommand;
 use crate::matrix::crypto::decrypt_trigger_secret;
@@ -166,8 +166,10 @@ fn log_event(
     extra: Option<&str>,
 ) {
     let mut details = format!(
-        "command={} sender={} room={}",
-        parsed.command, msg.sender, msg.room_id
+        "{}sender={} room={}",
+        command_tag(&parsed.command),
+        msg.sender,
+        msg.room_id
     );
     if let Some(extra) = extra {
         details.push_str(" error=");
@@ -321,7 +323,8 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].0, "trigger");
         let details = rows[0].2.clone().unwrap();
-        assert!(details.contains("nope") && details.contains("@alice:x"));
+        assert!(details.starts_with(&command_tag("nope")), "{details}");
+        assert!(details.contains("@alice:x"));
         assert!(details.contains("!room:x"));
     }
 

@@ -5,7 +5,7 @@
 > is the current design:** triggers, access profiles, headers and secret names
 > are defined in YAML (version-controlled, read into memory at startup); the UI
 > only lists triggers and sets secret values, like the webhooks page. Tasks
-> 11-16 are done; task 17 (final verification) is pending. Sections 4-9 describe
+> 11-17 are done. Sections 4-9 describe
 > the original design where §13 says they are superseded.
 > **Scope:** Add command triggers that let a Matrix user mention the
 > bot to invoke an external HTTP webhook and get the response back in the room.
@@ -487,7 +487,7 @@ recorded here per the dependency-review rule.
 
 ## 13. Revision: YAML-defined triggers (proposed)
 
-> **Status:** Approved and implemented (tasks 11-16); task 17 is pending.
+> **Status:** Approved and implemented (tasks 11-17).
 > It supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
 > `access_profiles` / `trigger_headers` parts of §5, the CRUD parts of §6, the
 > UI in task 9, and the "no config schema change" line in §9.
@@ -763,7 +763,7 @@ task. No new dependencies.
   - Test: the example config passes the validation test from Task 11.
   - Demo: the example config starts the server.
 
-- [ ] **Task 17: Hardening and verification.** Full `cargo test`,
+- [x] **Task 17: Hardening and verification.** Full `cargo test`,
   `cargo clippy --all-targets --all-features -D warnings`, `cargo fmt --check`,
   `cargo deny check`, wasm build, all in the devcontainer. Manual end-to-end:
   declare a trigger with a secret in YAML, set the secret in the UI, run the
@@ -775,5 +775,5 @@ task. No new dependencies.
     `cargo deny check`: advisories, bans, licenses and sources ok). A smoke test
     of the real server binary on a fresh data dir also passed: migrations 1-3
     apply, a bad config (literal `Authorization`) is refused at startup, and
-    list/set/clear secret work over HTTP. **Still pending: the manual
-    end-to-end through a connected Matrix account.**
+    list/set/clear secret work over HTTP. The manual end-to-end through a
+    connected Matrix account was done by the maintainer and worked.
