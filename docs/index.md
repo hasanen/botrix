@@ -6,7 +6,7 @@ nav_order: 1
 
 # Botrix
 
-A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from external services and forwards formatted messages to Matrix rooms — no custom code required, just YAML configuration.
+A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from external services and forwards formatted messages to Matrix rooms, and works the other way too: mention the bot in a room to call an external webhook and get the result back. No custom code required, just YAML configuration.
 
 ## Features
 
