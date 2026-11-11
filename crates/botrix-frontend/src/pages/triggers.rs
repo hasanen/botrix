@@ -6,6 +6,7 @@
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
+use leptos_router::components::A;
 
 use botrix_common::api::triggers::TriggerInfo;
 
@@ -15,7 +16,7 @@ use crate::components::layout::{redirect_if_unauthorized, AuthLayout};
 use crate::components::loading_spinner::LoadingSpinner;
 use crate::components::modal::ConfirmModal;
 use crate::components::status_badge::StatusBadge;
-use crate::util::{access_lines, secret_badge, secret_value_error};
+use crate::util::{access_lines, secret_badge, secret_value_error, trigger_logs_link};
 
 /// A `(command, secret name)` pair a modal is acting on.
 type SecretTarget = (String, String);
@@ -159,6 +160,13 @@ fn TriggersCard() -> impl IntoView {
                                                 {(!t.description.is_empty()).then(|| view! {
                                                     <div class="text-xs text-gray-500">{t.description.clone()}</div>
                                                 })}
+                                                <A
+                                                    href=trigger_logs_link(&t.command)
+                                                    attr:class="text-xs text-blue-700 underline"
+                                                    attr:aria-label=format!("View activity for {}", t.command)
+                                                >
+                                                    "View activity"
+                                                </A>
                                             </td>
                                             <td class="py-2 pr-4">{t.method.clone()}</td>
                                             <td class="py-2 pr-4">

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Command triggers: mention the bot in a Matrix room to call an outbound webhook and reply with the result. Triggers are defined under `triggers` in the YAML config.
 - Access profiles under `access_profiles` in the config, to control who can run which triggers.
 - Triggers page in the web UI that lists the config-defined triggers and sets or clears their secret values, with `GET /api/v1/triggers` and `PUT`/`DELETE /api/v1/triggers/{command}/secrets/{name}`.
+- Logs can be filtered by component and by trigger command, in the API (`?component=`, `?command=`) and on the Logs page. Each trigger on the Triggers page has a **View activity** link to its events.
 - Config validation for triggers, including a check that credential headers such as `Authorization` use a `{{secret:NAME}}` placeholder.
 - SSRF-guarded outbound webhook caller.
 - Encrypted trigger secrets, using a separate key derivation label.

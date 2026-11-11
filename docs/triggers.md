@@ -80,6 +80,16 @@ Details of failures go to the **Logs** page. They are never put in the room, and
 
 Replies are not retried. A command is never replayed, so a failed `deploy` is reported once and not run again after a restart.
 
+## Seeing what happened
+
+Every command that runs, is refused or fails is recorded on the **Logs** page, along with the sender and room. Setting or clearing a secret is recorded too, with the secret's name but never its value.
+
+- On the **Triggers** page, **View activity** next to a command opens the Logs page filtered to that command.
+- On the Logs page you can filter by component and by command yourself. Commands are matched exactly and case-insensitively, so `echo` does not match `echo2`.
+- A command that is not configured, such as a typo, is recorded under the command that was typed, so you can filter for it as well.
+
+Events are kept for 30 days, and at most 10,000 are stored.
+
 ## Outbound request limits
 
 - Only `http` and `https` URLs are allowed, and certificates are validated.

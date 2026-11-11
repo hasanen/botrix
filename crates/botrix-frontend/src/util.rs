@@ -43,6 +43,43 @@ pub fn page_path(base: &str, page: u32) -> String {
     format!("{base}?page={page}")
 }
 
+/// Components the server records log events for, in display order.
+pub const LOG_COMPONENTS: [&str; 6] = ["auth", "webhook", "queue", "matrix", "system", "trigger"];
+
+/// `GET /api/v1/logs` path for `page` with optional filters.
+///
+/// Blank filters are left out; values are percent-encoded.
+pub fn logs_path(page: u32, component: &str, command: &str) -> String {
+    let mut path = page_path("/api/v1/logs", page);
+    for (key, value) in [("component", component), ("command", command)] {
+        let value = value.trim();
+        if !value.is_empty() {
+            path.push_str(&format!("&{key}={}", encode_path_segment(value)));
+        }
+    }
+    path
+}
+
+/// Logs page link showing the events of one trigger command.
+pub fn trigger_logs_link(command: &str) -> String {
+    format!(
+        "/logs?component=trigger&command={}",
+        encode_path_segment(command)
+    )
+}
+
+/// Short description of the active log filters, or `None` when unfiltered.
+pub fn log_filter_summary(component: &str, command: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    if !component.trim().is_empty() {
+        parts.push(format!("component {}", component.trim()));
+    }
+    if !command.trim().is_empty() {
+        parts.push(format!("command {}", command.trim()));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
 /// Number of pages needed for `total` items (at least 1).
 pub fn total_pages(total: i64, per_page: u32) -> u32 {
     if per_page == 0 || total <= 0 {
@@ -528,6 +565,69 @@ mod trigger_helper_tests {
         assert_eq!(
             lines,
             ["Rooms: !a:x, !b:x", "Users: @alice:x", "Profile: ops"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod log_filter_tests {
+    use super::*;
+
+    #[test]
+    fn logs_path_without_filters_is_just_the_page() {
+        assert_eq!(logs_path(2, "", ""), "/api/v1/logs?page=2");
+    }
+
+    #[test]
+    fn logs_path_adds_encoded_filters_and_ignores_blank_ones() {
+        assert_eq!(
+            logs_path(1, "trigger", "echo"),
+            "/api/v1/logs?page=1&component=trigger&command=echo"
+        );
+        assert_eq!(
+            logs_path(1, "  ", " a&b=c "),
+            "/api/v1/logs?page=1&command=a%26b%3Dc"
+        );
+        assert_eq!(
+            logs_path(3, "trigger", "  "),
+            "/api/v1/logs?page=3&component=trigger"
+        );
+    }
+
+    #[test]
+    fn trigger_logs_link_targets_the_logs_page_for_that_command() {
+        assert_eq!(
+            trigger_logs_link("echo"),
+            "/logs?component=trigger&command=echo"
+        );
+        assert_eq!(
+            trigger_logs_link("a/b c"),
+            "/logs?component=trigger&command=a%2Fb%20c"
+        );
+    }
+
+    #[test]
+    fn log_components_match_the_components_the_server_records() {
+        assert_eq!(
+            LOG_COMPONENTS,
+            ["auth", "webhook", "queue", "matrix", "system", "trigger"]
+        );
+    }
+
+    #[test]
+    fn log_filter_summary_describes_active_filters() {
+        assert_eq!(log_filter_summary("", ""), None);
+        assert_eq!(
+            log_filter_summary("trigger", ""),
+            Some("component trigger".to_owned())
+        );
+        assert_eq!(
+            log_filter_summary("trigger", " echo "),
+            Some("component trigger, command echo".to_owned())
+        );
+        assert_eq!(
+            log_filter_summary("", "echo"),
+            Some("command echo".to_owned())
         );
     }
 }
