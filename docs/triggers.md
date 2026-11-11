@@ -4,6 +4,8 @@ title: Command triggers
 nav_order: 4
 ---
 
+{% raw %}
+
 # Command triggers
 
 Command triggers are the reverse of [webhooks](webhooks.md). Someone mentions the bot in a Matrix room, Botrix calls an external HTTP webhook, and the bot replies in the room with the result.
@@ -197,3 +199,5 @@ Events are kept for 30 days, and at most 10,000 are stored.
 ## Access control
 
 A trigger can limit the rooms and users that may run it, directly with `allowed_rooms` and `allowed_users` or through an `access_profile`. The sender must pass both checks, and an empty list does not restrict that dimension. Anyone who can mention the bot in a room can otherwise run an enabled command, so restrict commands that change things.
+
+{% endraw %}

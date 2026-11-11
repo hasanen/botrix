@@ -4,6 +4,8 @@ title: Configuration reference
 nav_order: 2
 ---
 
+{% raw %}
+
 # Configuration reference
 
 Botrix is configured with a single YAML file mounted at `/config/config.yaml` (path configurable via `BOTRIX_CONFIG`). Changes require a container restart. The configuration is validated at startup — invalid config prevents the application from starting.
@@ -158,3 +160,5 @@ For each trigger, a non-empty inline `allowed_rooms` or `allowed_users` replaces
 `BOTRIX_CRYPTO_PASSPHRASE` protects Matrix key material at rest — it encrypts the database that stores Megolm session keys and cross-signing keys. Without it, the application will not start. Anyone who copies the `/data` volume without this passphrase cannot read any Matrix E2EE key material.
 
 **Use different values for each.** If both secrets are the same, compromising one compromises both.
+
+{% endraw %}

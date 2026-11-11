@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Documentation examples for using secrets in trigger headers: a Bearer token, an API key header, HTTP Basic authentication, and several secrets in one trigger. The page also lists the rules and what happens on common mistakes.
 
+### Fixed
+
+- The documentation site no longer drops `{{secret:NAME}}` placeholders. Jekyll treated them as template tags and rendered them as empty text, so examples showed `Authorization: "Bearer "`. A test now fails if a docs page uses template syntax outside a raw block.
+
 ## [1.0.0] - 2026-11-11
 
 ### Added
