@@ -13,6 +13,15 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 - Runs command triggers: mention the bot (`@botrix deploy prod`) to call an HTTP webhook and reply in the room with the result
 - Provides a web UI for managing connections, tokens, trigger secrets, and notification history
 
+## Screenshots
+
+The admin web UI, shown with the example config.
+
+| | |
+|---|---|
+| ![Webhook endpoints](docs/images/webhooks.png) | ![Command triggers](docs/images/triggers.png) |
+| ![Matrix account and destinations](docs/images/matrix.png) | ![Logs](docs/images/logs.png) |
+
 ## Project status
 
 Botrix is at v1.0.0 and carries messages in both directions. Inbound: webhook intake and templating, the delivery queue with retries, and end-to-end-encrypted room delivery (after a one-time recovery-key import). Outbound: command triggers that call your webhooks from a Matrix room. It also has the admin web UI, connecting a Matrix account over OAuth, and the container image. Connecting a Matrix account needs a homeserver running [Matrix Authentication Service](https://matrix-org.github.io/matrix-authentication-service/) and Botrix reachable at an HTTPS URL — see the [Matrix setup guide](https://hasanen.github.io/botrix/matrix-setup).

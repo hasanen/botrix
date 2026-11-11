@@ -17,6 +17,15 @@ A self-hosted Matrix notification gateway. Botrix receives HTTP webhooks from ex
 - **Web UI** — manage connections, tokens, trigger secrets, and notification history from a browser
 - **Single container** — one OCI image, no external services required
 
+## Screenshots
+
+The admin web UI, shown with the example config.
+
+| | |
+|---|---|
+| ![Webhook endpoints](images/webhooks.png) | ![Command triggers](images/triggers.png) |
+| ![Matrix account and destinations](images/matrix.png) | ![Logs](images/logs.png) |
+
 ## Get started
 
 1. [Install and configure](deployment.md) the container
