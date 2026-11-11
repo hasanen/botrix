@@ -170,6 +170,10 @@ client of its own.
 
 ## 5. Data Model
 
+> **Superseded by [§13.5](#135-data-model).** Migration `0003` drops these
+> tables except `trigger_secrets`, which is re-keyed by `(command, name)`.
+> Triggers, profiles and headers now live in the YAML config.
+
 Migration `crates/botrix-server/migrations/0002_command_triggers.sql`:
 
 ```sql
@@ -223,6 +227,10 @@ CREATE INDEX idx_trigger_secrets_trigger ON trigger_secrets(trigger_id);
 ---
 
 ## 6. API
+
+> **Superseded by [§13.6](#136-api).** Only `GET /api/v1/triggers` and
+> `PUT`/`DELETE /api/v1/triggers/{command}/secrets/{name}` remain. The routes
+> below were removed.
 
 New endpoints under `/api/v1/`, authenticated + CSRF on mutations:
 
@@ -777,3 +785,18 @@ task. No new dependencies.
     apply, a bad config (literal `Authorization`) is refused at startup, and
     list/set/clear secret work over HTTP. The manual end-to-end through a
     connected Matrix account was done by the maintainer and worked.
+
+### 13.12 Follow-up: per-trigger activity
+
+Added after the end-to-end test, outside the original task list:
+
+- `GET /api/v1/logs` accepts `?component=` and `?command=` (blank values are
+  ignored). The command match is an exact, case-insensitive prefix comparison on
+  the event details, so `echo` does not match `echo2` and `_` or `%` are not
+  wildcards.
+- Trigger events and secret changes tag their details through
+  `db::logs::command_tag`, which the filter shares, so the writer and the
+  filter cannot drift apart.
+- The Logs page has a component select and a command field, with the starting
+  filters read from the URL. Each trigger on the Triggers page has a **View
+  activity** link to `/logs?component=trigger&command=<name>`.

@@ -52,6 +52,7 @@ The reverse direction: mention the bot in a Matrix room (`@botrix <command> args
 - Access control: each trigger can limit allowed rooms and users. Both must match (AND). An empty list means unrestricted. Inline lists override the trigger's access profile.
 - Outbound calls are SSRF-guarded: loopback, private, link-local, unique-local, unspecified and multicast addresses are blocked, redirects are not followed, and requests have timeouts and a response size cap.
 - Replies are not retried. A command is never replayed, so a failure is reported once in the room.
+- Every command that runs, is refused or fails is logged with the sender and room. **View activity** on the Triggers page opens the Logs page filtered to that command, and the Logs page can also be filtered by component and command.
 
 ## Documentation
 
