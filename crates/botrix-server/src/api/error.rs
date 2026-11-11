@@ -107,18 +107,7 @@ impl From<crate::db::triggers::TriggerError> for ApiError {
     fn from(err: crate::db::triggers::TriggerError) -> Self {
         use crate::db::triggers::TriggerError;
         match err {
-            TriggerError::DuplicateCommand(_) => ApiError::Conflict(err.to_string()),
-            TriggerError::Database(_) | TriggerError::Json(_) => ApiError::Internal,
-        }
-    }
-}
-
-impl From<crate::db::access_profiles::AccessProfileError> for ApiError {
-    fn from(err: crate::db::access_profiles::AccessProfileError) -> Self {
-        use crate::db::access_profiles::AccessProfileError;
-        match err {
-            AccessProfileError::DuplicateName(_) => ApiError::Conflict(err.to_string()),
-            AccessProfileError::Database(_) | AccessProfileError::Json(_) => ApiError::Internal,
+            TriggerError::Database(_) => ApiError::Internal,
         }
     }
 }

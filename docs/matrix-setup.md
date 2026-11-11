@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Matrix setup
-nav_order: 4
+nav_order: 5
 ---
 
 # Matrix setup

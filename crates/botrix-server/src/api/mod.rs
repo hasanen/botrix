@@ -3,7 +3,6 @@
 //! All handlers live under `/api/v1/`. Auth and settings are implemented in
 //! Phase 3; the remaining modules are filled in during Phase 7.
 
-pub mod access_profiles;
 pub mod auth;
 pub mod csrf;
 pub mod error;

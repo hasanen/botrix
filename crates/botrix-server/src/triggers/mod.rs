@@ -3,6 +3,7 @@
 pub mod authz;
 pub mod handler;
 pub mod help;
+pub mod lookup;
 pub mod reqwest_caller;
 pub mod respond;
 pub mod ssrf;

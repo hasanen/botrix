@@ -43,6 +43,43 @@ pub fn page_path(base: &str, page: u32) -> String {
     format!("{base}?page={page}")
 }
 
+/// Components the server records log events for, in display order.
+pub const LOG_COMPONENTS: [&str; 6] = ["auth", "webhook", "queue", "matrix", "system", "trigger"];
+
+/// `GET /api/v1/logs` path for `page` with optional filters.
+///
+/// Blank filters are left out; values are percent-encoded.
+pub fn logs_path(page: u32, component: &str, command: &str) -> String {
+    let mut path = page_path("/api/v1/logs", page);
+    for (key, value) in [("component", component), ("command", command)] {
+        let value = value.trim();
+        if !value.is_empty() {
+            path.push_str(&format!("&{key}={}", encode_path_segment(value)));
+        }
+    }
+    path
+}
+
+/// Logs page link showing the events of one trigger command.
+pub fn trigger_logs_link(command: &str) -> String {
+    format!(
+        "/logs?component=trigger&command={}",
+        encode_path_segment(command)
+    )
+}
+
+/// Short description of the active log filters, or `None` when unfiltered.
+pub fn log_filter_summary(component: &str, command: &str) -> Option<String> {
+    let mut parts = Vec::new();
+    if !component.trim().is_empty() {
+        parts.push(format!("component {}", component.trim()));
+    }
+    if !command.trim().is_empty() {
+        parts.push(format!("command {}", command.trim()));
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
 /// Number of pages needed for `total` items (at least 1).
 pub fn total_pages(total: i64, per_page: u32) -> u32 {
     if per_page == 0 || total <= 0 {
@@ -182,6 +219,73 @@ pub fn membership_badge(state: &RoomMembershipState) -> (BadgeStatus, &'static s
         RoomMembershipState::Banned => (BadgeStatus::Error, "Banned"),
         RoomMembershipState::Unknown => (BadgeStatus::Disconnected, "Unknown"),
     }
+}
+
+/// Largest secret value the server accepts, in bytes (mirrors the API limit).
+pub const MAX_SECRET_BYTES: usize = 4096;
+
+/// Percent-encodes `segment` for use as one URL path segment.
+///
+/// Only RFC 3986 unreserved characters pass through, so a command containing
+/// `/`, `?` or `#` cannot change which route is requested.
+pub fn encode_path_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for byte in segment.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// API path for one secret of a config-defined trigger.
+pub fn trigger_secret_path(command: &str, name: &str) -> String {
+    format!(
+        "/api/v1/triggers/{}/secrets/{}",
+        encode_path_segment(command),
+        encode_path_segment(name)
+    )
+}
+
+/// Why `value` cannot be saved as a secret, or `None` if it can.
+///
+/// The value is not trimmed: whitespace can be part of a secret.
+pub fn secret_value_error(value: &str) -> Option<&'static str> {
+    if value.is_empty() {
+        Some("Enter a value.")
+    } else if value.len() > MAX_SECRET_BYTES {
+        Some("The value is too long (4096 bytes at most).")
+    } else {
+        None
+    }
+}
+
+/// Badge for whether a trigger secret has a stored value.
+pub fn secret_badge(is_set: bool) -> (BadgeStatus, &'static str) {
+    if is_set {
+        (BadgeStatus::Connected, "Set")
+    } else {
+        (BadgeStatus::Disconnected, "Not set")
+    }
+}
+
+/// Human-readable access lines for a trigger: effective rooms, users, and the
+/// access profile name when one is referenced.
+pub fn access_lines(rooms: &[String], users: &[String], profile: Option<&str>) -> Vec<String> {
+    let list = |label: &str, items: &[String]| {
+        if items.is_empty() {
+            format!("{label}: any")
+        } else {
+            format!("{label}: {}", items.join(", "))
+        }
+    };
+    let mut lines = vec![list("Rooms", rooms), list("Users", users)];
+    if let Some(profile) = profile {
+        lines.push(format!("Profile: {profile}"));
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -382,6 +486,148 @@ mod tests {
         assert_eq!(
             membership_badge(&RoomMembershipState::Unknown),
             (BadgeStatus::Disconnected, "Unknown")
+        );
+    }
+}
+
+#[cfg(test)]
+mod trigger_helper_tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn encode_path_segment_keeps_unreserved_characters() {
+        assert_eq!(encode_path_segment("Deploy-1_a.b~"), "Deploy-1_a.b~");
+    }
+
+    #[test]
+    fn encode_path_segment_escapes_separators_and_multibyte_characters() {
+        assert_eq!(encode_path_segment("a/b?c#d"), "a%2Fb%3Fc%23d");
+        assert_eq!(encode_path_segment("100%"), "100%25");
+        assert_eq!(encode_path_segment("päivä"), "p%C3%A4iv%C3%A4");
+    }
+
+    #[test]
+    fn trigger_secret_path_encodes_both_segments() {
+        assert_eq!(
+            trigger_secret_path("deploy", "TOKEN"),
+            "/api/v1/triggers/deploy/secrets/TOKEN"
+        );
+        assert_eq!(
+            trigger_secret_path("a/b", "X Y"),
+            "/api/v1/triggers/a%2Fb/secrets/X%20Y"
+        );
+    }
+
+    #[test]
+    fn secret_value_error_rejects_empty_and_oversized_values() {
+        assert!(secret_value_error("").is_some());
+        assert!(secret_value_error(&"x".repeat(MAX_SECRET_BYTES + 1)).is_some());
+    }
+
+    #[test]
+    fn secret_value_error_counts_bytes_not_characters() {
+        // 'ä' is two bytes in UTF-8, so this is over the limit in bytes only.
+        let value = "ä".repeat(MAX_SECRET_BYTES / 2 + 1);
+        assert!(value.chars().count() <= MAX_SECRET_BYTES);
+        assert!(secret_value_error(&value).is_some());
+    }
+
+    #[test]
+    fn secret_value_error_accepts_values_up_to_the_limit() {
+        assert!(secret_value_error("x").is_none());
+        assert!(secret_value_error(&"x".repeat(MAX_SECRET_BYTES)).is_none());
+        // Whitespace is a legitimate part of a secret and is not trimmed.
+        assert!(secret_value_error("  ").is_none());
+    }
+
+    #[test]
+    fn secret_badge_distinguishes_set_from_not_set() {
+        assert_eq!(secret_badge(true), (BadgeStatus::Connected, "Set"));
+        assert_eq!(secret_badge(false), (BadgeStatus::Disconnected, "Not set"));
+    }
+
+    #[test]
+    fn access_lines_show_any_when_unrestricted() {
+        assert_eq!(access_lines(&[], &[], None), ["Rooms: any", "Users: any"]);
+    }
+
+    #[test]
+    fn access_lines_list_rooms_users_and_profile() {
+        let lines = access_lines(
+            &strings(&["!a:x", "!b:x"]),
+            &strings(&["@alice:x"]),
+            Some("ops"),
+        );
+        assert_eq!(
+            lines,
+            ["Rooms: !a:x, !b:x", "Users: @alice:x", "Profile: ops"]
+        );
+    }
+}
+
+#[cfg(test)]
+mod log_filter_tests {
+    use super::*;
+
+    #[test]
+    fn logs_path_without_filters_is_just_the_page() {
+        assert_eq!(logs_path(2, "", ""), "/api/v1/logs?page=2");
+    }
+
+    #[test]
+    fn logs_path_adds_encoded_filters_and_ignores_blank_ones() {
+        assert_eq!(
+            logs_path(1, "trigger", "echo"),
+            "/api/v1/logs?page=1&component=trigger&command=echo"
+        );
+        assert_eq!(
+            logs_path(1, "  ", " a&b=c "),
+            "/api/v1/logs?page=1&command=a%26b%3Dc"
+        );
+        assert_eq!(
+            logs_path(3, "trigger", "  "),
+            "/api/v1/logs?page=3&component=trigger"
+        );
+    }
+
+    #[test]
+    fn trigger_logs_link_targets_the_logs_page_for_that_command() {
+        assert_eq!(
+            trigger_logs_link("echo"),
+            "/logs?component=trigger&command=echo"
+        );
+        assert_eq!(
+            trigger_logs_link("a/b c"),
+            "/logs?component=trigger&command=a%2Fb%20c"
+        );
+    }
+
+    #[test]
+    fn log_components_match_the_components_the_server_records() {
+        assert_eq!(
+            LOG_COMPONENTS,
+            ["auth", "webhook", "queue", "matrix", "system", "trigger"]
+        );
+    }
+
+    #[test]
+    fn log_filter_summary_describes_active_filters() {
+        assert_eq!(log_filter_summary("", ""), None);
+        assert_eq!(
+            log_filter_summary("trigger", ""),
+            Some("component trigger".to_owned())
+        );
+        assert_eq!(
+            log_filter_summary("trigger", " echo "),
+            Some("component trigger, command echo".to_owned())
+        );
+        assert_eq!(
+            log_filter_summary("", "echo"),
+            Some("command echo".to_owned())
         );
     }
 }

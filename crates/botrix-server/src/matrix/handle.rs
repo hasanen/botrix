@@ -180,6 +180,16 @@ mod tests {
     fn command_ctx() -> Arc<HandlerContext> {
         Arc::new(HandlerContext {
             pool: crate::db::test_pool(),
+            config: Arc::new(botrix_common::config::Config {
+                matrix: botrix_common::config::MatrixConfig {
+                    homeserver: "https://matrix.example.com".to_owned(),
+                    destinations: Default::default(),
+                },
+                webhooks: Default::default(),
+                triggers: Default::default(),
+                access_profiles: Default::default(),
+                server: Default::default(),
+            }),
             crypto_passphrase: Arc::from("test-passphrase"),
             caller: Arc::new(crate::triggers::webhook::FakeCaller::new()),
         })

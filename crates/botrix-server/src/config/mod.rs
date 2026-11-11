@@ -91,8 +91,134 @@ mod tests {
                 destinations: Default::default(),
             },
             webhooks: Default::default(),
+            triggers: Default::default(),
+            access_profiles: Default::default(),
             server: Default::default(),
         }
+    }
+
+    const BASE_YAML: &str = "matrix:\n  homeserver: https://matrix.example.com\n";
+
+    fn parse(extra: &str) -> Result<Config, serde_yaml::Error> {
+        serde_yaml::from_str(&format!("{BASE_YAML}{extra}"))
+    }
+
+    #[test]
+    fn config_without_triggers_or_profiles_still_parses() {
+        // Arrange / Act
+        let cfg = parse("").unwrap();
+
+        // Assert
+        assert!(cfg.triggers.is_empty());
+        assert!(cfg.access_profiles.is_empty());
+    }
+
+    #[test]
+    fn parses_triggers_and_profiles_with_defaults() {
+        // Arrange
+        let yaml = "\
+access_profiles:
+  ops:
+    allowed_rooms: [\"!ops:example.com\"]
+triggers:
+  deploy:
+    method: POST
+    url: https://ci.example.com/hook
+    headers:
+      Authorization: \"Bearer {{secret:TOKEN}}\"
+    secrets: [TOKEN]
+    access_profile: ops
+";
+
+        // Act
+        let cfg = parse(yaml).unwrap();
+
+        // Assert
+        let t = &cfg.triggers["deploy"];
+        assert!(t.enabled, "enabled defaults to true");
+        assert_eq!(t.description, "");
+        assert_eq!(t.secrets, ["TOKEN"]);
+        assert_eq!(t.headers["Authorization"], "Bearer {{secret:TOKEN}}");
+        assert_eq!(t.access_profile.as_deref(), Some("ops"));
+        assert!(t.allowed_rooms.is_empty() && t.allowed_users.is_empty());
+        assert_eq!(
+            cfg.access_profiles["ops"].allowed_rooms,
+            ["!ops:example.com"]
+        );
+        assert!(validate::validate(&cfg).is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_trigger_keys_so_typos_cannot_drop_restrictions() {
+        // Arrange: `allowed_room` (singular) is a typo for `allowed_rooms`.
+        let yaml = "\
+triggers:
+  deploy:
+    method: POST
+    url: https://ci.example.com/hook
+    allowed_room: [\"!ops:example.com\"]
+";
+
+        // Act
+        let result = parse(yaml);
+
+        // Assert
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_access_profile_keys() {
+        let result = parse("access_profiles:\n  ops:\n    allowed_user: [\"@a:b.c\"]\n");
+        assert!(result.is_err());
+    }
+
+    /// The first fenced `yaml` block of `markdown`.
+    fn first_yaml_block(markdown: &str) -> &str {
+        let after_fence = markdown
+            .split_once("```yaml\n")
+            .expect("document has a yaml block")
+            .1;
+        after_fence
+            .split_once("```")
+            .expect("yaml block is closed")
+            .0
+    }
+
+    fn assert_documents_a_valid_trigger_setup(cfg: &Config) {
+        validate::validate(cfg).expect("example config must be valid");
+        let deploy = cfg
+            .triggers
+            .get("deploy")
+            .expect("example defines a `deploy` trigger");
+        assert!(
+            !deploy.secrets.is_empty(),
+            "example shows how to declare secrets"
+        );
+        assert!(
+            deploy.headers.values().any(|v| v.contains("{{secret:")),
+            "example shows a header that uses a secret"
+        );
+        assert!(
+            deploy.access_profile.is_some() && !cfg.access_profiles.is_empty(),
+            "example shows an access profile"
+        );
+    }
+
+    #[test]
+    fn config_example_file_is_valid_and_documents_triggers() {
+        let cfg: Config =
+            serde_yaml::from_str(include_str!("../../../../config.example.yaml")).unwrap();
+
+        assert_documents_a_valid_trigger_setup(&cfg);
+    }
+
+    #[test]
+    fn configuration_doc_full_example_is_valid_and_documents_triggers() {
+        let doc = include_str!("../../../../docs/configuration.md");
+
+        let cfg: Config = serde_yaml::from_str(first_yaml_block(doc)).unwrap();
+
+        assert_documents_a_valid_trigger_setup(&cfg);
     }
 
     #[test]

@@ -44,14 +44,15 @@ Open `http://localhost:8080` to create the admin account.
 
 The reverse direction: mention the bot in a Matrix room (`@botrix <command> args`) and Botrix calls an external HTTP webhook, then replies in the room with the result.
 
-- Manage triggers at `/triggers` and reusable access profiles at `/access-profiles` in the web UI. Changes apply immediately, no restart. Triggers are stored in the database, not the YAML config.
+- Triggers and reusable access profiles are defined in the YAML config (`triggers`, `access_profiles`), so they live in version control. Changes need a restart. The **Triggers** page in the web UI lists them and sets their secret values.
 - Commands match case-insensitively on the first word after the mention. `help` is built in and lists only the commands the sender can run in that room.
 - The request payload has fixed keys: `command`, `arguments`, `args`, `raw_message`, `sender`, `room_id`, `event_id`.
 - The reply is the JSON response rendered through the same `${field.path}` templates as webhooks. Non-JSON or failed calls reply with a short success or failure notice; details go to the logs.
-- Header values can reference secrets with `{{secret:NAME}}`. Secrets are encrypted at rest and write-only: the API and UI never show them again, only that they are set.
+- Header values can reference secrets with `{{secret:NAME}}`. The config declares secret names only; the values are set in the web UI, encrypted at rest and write-only: the API and UI never show them again, only that they are set. Never put credentials in the config file. Botrix refuses to start if `Authorization`, `Cookie` or similar headers hold a literal value.
 - Access control: each trigger can limit allowed rooms and users. Both must match (AND). An empty list means unrestricted. Inline lists override the trigger's access profile.
 - Outbound calls are SSRF-guarded: loopback, private, link-local, unique-local, unspecified and multicast addresses are blocked, redirects are not followed, and requests have timeouts and a response size cap.
 - Replies are not retried. A command is never replayed, so a failure is reported once in the room.
+- Every command that runs, is refused or fails is logged with the sender and room. **View activity** on the Triggers page opens the Logs page filtered to that command, and the Logs page can also be filtered by component and command.
 
 ## Documentation
 
@@ -59,6 +60,7 @@ Full documentation is available at **[hasanen.github.io/botrix](https://hasanen.
 
 - [Configuration reference](https://hasanen.github.io/botrix/configuration)
 - [Webhook integrations](https://hasanen.github.io/botrix/webhooks)
+- [Command triggers](https://hasanen.github.io/botrix/triggers)
 - [Matrix setup](https://hasanen.github.io/botrix/matrix-setup)
 - [Deployment guide](https://hasanen.github.io/botrix/deployment)
 

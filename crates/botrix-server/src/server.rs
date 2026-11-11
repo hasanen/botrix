@@ -113,6 +113,7 @@ pub async fn run(config: Config, data_dir: &str) -> Result<(), ServerError> {
 
     let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
         pool: pool.clone(),
+        config: Arc::new(config.clone()),
         crypto_passphrase: Arc::from(crypto_passphrase.as_str()),
         caller: Arc::new(crate::triggers::reqwest_caller::ReqwestCaller::with_defaults()?),
     });
@@ -226,6 +227,7 @@ pub async fn build_app_with_caller(
     let destinations = crate::matrix::client::destination_map(&config);
     let command_ctx = Arc::new(crate::triggers::handler::HandlerContext {
         pool: pool.clone(),
+        config: Arc::new(config.clone()),
         crypto_passphrase: Arc::from("test-passphrase"),
         caller,
     });
@@ -307,7 +309,7 @@ pub async fn build_app_with_matrix(
 /// Assemble the API router with the given application state.
 fn build_router(state: AppState) -> Router {
     use crate::api::{
-        access_profiles, auth, logs, matrix as api_matrix, notifications, settings, triggers,
+        auth, logs, matrix as api_matrix, notifications, settings, triggers,
         webhooks as api_webhooks,
     };
     use crate::webhooks::handler as webhook_handler;
@@ -349,27 +351,12 @@ fn build_router(state: AppState) -> Router {
             "/api/v1/webhooks/{id}/token",
             post(api_webhooks::generate_token).delete(api_webhooks::revoke_token),
         )
-        // Access profiles (authenticated)
+        // Command triggers: defined in config, only secret values are writable
+        .route("/api/v1/triggers", get(triggers::list))
         .route(
-            "/api/v1/access-profiles",
-            get(access_profiles::list).post(access_profiles::create),
+            "/api/v1/triggers/{command}/secrets/{name}",
+            axum::routing::put(triggers::set_secret).delete(triggers::delete_secret),
         )
-        .route(
-            "/api/v1/access-profiles/{id}",
-            axum::routing::put(access_profiles::update).delete(access_profiles::delete),
-        )
-        // Command triggers (authenticated)
-        .route(
-            "/api/v1/triggers",
-            get(triggers::list).post(triggers::create),
-        )
-        .route(
-            "/api/v1/triggers/{id}",
-            get(triggers::get)
-                .put(triggers::update)
-                .delete(triggers::delete),
-        )
-        .route("/api/v1/triggers/{id}/test", post(triggers::test))
         // Matrix integration (authenticated)
         .route("/api/v1/matrix/status", get(api_matrix::status))
         .route("/api/v1/matrix/rooms", get(api_matrix::rooms))

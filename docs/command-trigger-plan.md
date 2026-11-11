@@ -1,10 +1,12 @@
 # Botrix – Dynamic Matrix Command Triggers
 
-> **Status:** In progress. Tasks 1-10 are implemented as originally designed
-> (UI-managed, DB-backed). **Revision proposed in
-> [§13](#13-revision-yaml-defined-triggers-proposed): define triggers and access
-> profiles in YAML (version-controlled, read into memory at startup) and keep
-> only headers and secrets in the UI/DB. Pending review; tasks 11-17.**
+> **Status:** In progress. Tasks 1-10 were built as originally designed
+> (UI-managed, DB-backed). **[§13](#13-revision-yaml-defined-triggers-proposed)
+> is the current design:** triggers, access profiles, headers and secret names
+> are defined in YAML (version-controlled, read into memory at startup); the UI
+> only lists triggers and sets secret values, like the webhooks page. Tasks
+> 11-17 are done. Sections 4-9 describe
+> the original design where §13 says they are superseded.
 > **Scope:** Add command triggers that let a Matrix user mention the
 > bot to invoke an external HTTP webhook and get the response back in the room.
 
@@ -118,8 +120,9 @@ client of its own.
 
 ## 4. Design Decisions
 
-> **Decisions 1, 2, 5 and 6 are superseded by [§13](#13-revision-yaml-defined-triggers-proposed)
-> if the revision is approved.**
+> **Decisions 1, 2, 5 and 6 are superseded by [§13](#13-revision-yaml-defined-triggers-proposed).**
+> Triggers and profiles are now YAML-defined and held in memory; only secret
+> values are stored in the database, keyed by command and name.
 
 1. **Triggers are DB-backed, not YAML.** The requirement is explicit:
    UI-managed, hot-reloading, no restart. This differs from the existing YAML
@@ -166,6 +169,10 @@ client of its own.
 ---
 
 ## 5. Data Model
+
+> **Superseded by [§13.5](#135-data-model).** Migration `0003` drops these
+> tables except `trigger_secrets`, which is re-keyed by `(command, name)`.
+> Triggers, profiles and headers now live in the YAML config.
 
 Migration `crates/botrix-server/migrations/0002_command_triggers.sql`:
 
@@ -220,6 +227,10 @@ CREATE INDEX idx_trigger_secrets_trigger ON trigger_secrets(trigger_id);
 ---
 
 ## 6. API
+
+> **Superseded by [§13.6](#136-api).** Only `GET /api/v1/triggers` and
+> `PUT`/`DELETE /api/v1/triggers/{command}/secrets/{name}` remain. The routes
+> below were removed.
 
 New endpoints under `/api/v1/`, authenticated + CSRF on mutations:
 
@@ -290,8 +301,11 @@ with a custom `Debug`/serialization that never includes secret values.
   webhooks/destinations/notifications keep working.
 - New `Component::Trigger` variant added to the logs component enum.
 - reqwest + ipnet promoted to direct deps (no new crates in the tree).
-- No config-file schema change required for triggers (they live in the DB). Bot
-  identity continues to come from the connected session.
+- ~~No config-file schema change required for triggers (they live in the DB).~~
+  Superseded by [§13](#13-revision-yaml-defined-triggers-proposed): the config
+  gains optional `triggers` and `access_profiles` sections (existing configs
+  keep working), and migration `0003` drops the trigger tables. Bot identity
+  continues to come from the connected session.
 
 ---
 
@@ -481,8 +495,8 @@ recorded here per the dependency-review rule.
 
 ## 13. Revision: YAML-defined triggers (proposed)
 
-> **Status:** Proposal, pending review. Nothing below is implemented.
-> If approved, it supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
+> **Status:** Approved and implemented (tasks 11-17).
+> It supersedes §4 decisions 1, 2, 5, 6, the `command_triggers` /
 > `access_profiles` / `trigger_headers` parts of §5, the CRUD parts of §6, the
 > UI in task 9, and the "no config schema change" line in §9.
 
@@ -696,7 +710,7 @@ Each task: tests first (Arrange, Act, Assert, observable behavior), then
 implementation; all cargo/trunk commands in the devcontainer; one commit per
 task. No new dependencies.
 
-- [ ] **Task 11: Config types and validation (TDD).** Add `TriggerConfig` and
+- [x] **Task 11: Config types and validation (TDD).** Add `TriggerConfig` and
   `AccessProfileConfig` to `botrix-common/src/config.rs` (`#[serde(default)]`
   maps on `Config`). Add the §13.4 rules to `config/validate.rs`.
   - Test: valid config parses; each invalid rule returns its typed
@@ -706,7 +720,13 @@ task. No new dependencies.
     `Authorization` value); a config with no `triggers` key still loads.
   - Demo: `cargo test -p botrix-server config` passes.
 
-- [ ] **Task 12: Secret persistence keyed by command (TDD).** Add migration
+> **Note on Tasks 12-14:** migration `0003` drops the tables the handler, authz,
+> help and API queried, so these three could not each leave a green build. They
+> landed as one commit (backend switch). The old trigger/profile DTOs stay in
+> `botrix-common` until Task 15 so the frontend keeps compiling; the old UI
+> calls removed routes in the meantime.
+
+- [x] **Task 12: Secret persistence keyed by command (TDD).** Add migration
   `0003` (§13.5) and register it. Rewrite `db/triggers.rs` to secret queries by
   `(command, name)`; delete `db/access_profiles.rs` and the unused row structs.
   - Test: migration applies on a fresh and on a `0002`-migrated DB and leaves
@@ -714,7 +734,7 @@ task. No new dependencies.
     survive; `Debug` still redacts ciphertext.
   - Demo: DB tests green.
 
-- [ ] **Task 13: Handler, authz and help read from config (TDD).** Add
+- [x] **Task 13: Handler, authz and help read from config (TDD).** Add
   `config: Arc<Config>` to `HandlerContext`; look up triggers, profiles and
   headers from it; load secret values by command; adapt `authz.rs` and
   `help.rs` to the config types. Reply texts are unchanged.
@@ -725,7 +745,7 @@ task. No new dependencies.
     error and no secret value in logs.
   - Demo: `cargo test -p botrix-server triggers` passes.
 
-- [ ] **Task 14: API: list triggers, set/clear secret (TDD).** Replace the
+- [x] **Task 14: API: list triggers, set/clear secret (TDD).** Replace the
   handlers per §13.6; shrink the DTOs; update `server.rs` routes; remove the
   access-profile, create/update/delete and test routes.
   - Test: 401 without session; CSRF on `PUT`/`DELETE`; list reflects config and
@@ -734,7 +754,7 @@ task. No new dependencies.
     routes return 404/405.
   - Demo: API integration tests green.
 
-- [ ] **Task 15: Frontend: read-only triggers table with secret actions (TDD for
+- [x] **Task 15: Frontend: read-only triggers table with secret actions (TDD for
   helpers).** Rewrite `pages/triggers.rs` like the Webhook endpoints card;
   delete `trigger_edit.rs`, `triggers_form.rs`, `access_profiles.rs`, their
   routes and the nav entry.
@@ -743,7 +763,7 @@ task. No new dependencies.
   - Demo: in-browser, config triggers are listed read-only and a secret can be
     set and cleared; the value is never shown after saving.
 
-- [ ] **Task 16: Docs and example config.** Document `triggers:` and
+- [x] **Task 16: Docs and example config.** Document `triggers:` and
   `access_profiles:` in `docs/configuration.md` and `config.example.yaml`
   (including the never-put-credentials-in-YAML warning); update `README` /
   `CHANGELOG`; update `docs/webhooks.md`-style trigger docs if present; mark §13
@@ -751,10 +771,32 @@ task. No new dependencies.
   - Test: the example config passes the validation test from Task 11.
   - Demo: the example config starts the server.
 
-- [ ] **Task 17: Hardening and verification.** Full `cargo test`,
+- [x] **Task 17: Hardening and verification.** Full `cargo test`,
   `cargo clippy --all-targets --all-features -D warnings`, `cargo fmt --check`,
   `cargo deny check`, wasm build, all in the devcontainer. Manual end-to-end:
   declare a trigger with a secret in YAML, set the secret in the UI, run the
   command from Matrix, then restart with the trigger removed and confirm the
   command is unknown.
   - Demo: green devcontainer run plus the documented manual end-to-end.
+  - Progress: the automated checks are done and green (fmt, workspace clippy
+    with `-D warnings`, wasm clippy, `trunk build`, full workspace tests, and
+    `cargo deny check`: advisories, bans, licenses and sources ok). A smoke test
+    of the real server binary on a fresh data dir also passed: migrations 1-3
+    apply, a bad config (literal `Authorization`) is refused at startup, and
+    list/set/clear secret work over HTTP. The manual end-to-end through a
+    connected Matrix account was done by the maintainer and worked.
+
+### 13.12 Follow-up: per-trigger activity
+
+Added after the end-to-end test, outside the original task list:
+
+- `GET /api/v1/logs` accepts `?component=` and `?command=` (blank values are
+  ignored). The command match is an exact, case-insensitive prefix comparison on
+  the event details, so `echo` does not match `echo2` and `_` or `%` are not
+  wildcards.
+- Trigger events and secret changes tag their details through
+  `db::logs::command_tag`, which the filter shares, so the writer and the
+  filter cannot drift apart.
+- The Logs page has a component select and a command field, with the starting
+  filters read from the URL. Each trigger on the Triggers page has a **View
+  activity** link to `/logs?component=trigger&command=<name>`.

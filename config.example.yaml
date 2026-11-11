@@ -35,6 +35,38 @@ webhooks:
 
       ${message}
 
+# Reusable allowlists that triggers can reference by name.
+access_profiles:
+  ops:
+    allowed_rooms:
+      - "!abc123:matrix.example.com"
+    allowed_users:
+      - "@alice:matrix.example.com"
+      - "@bob:matrix.example.com"
+
+# Command triggers: mention the bot in a room (`@botrix deploy prod`) to call
+# an HTTP webhook and reply with the result. The key is the command word and is
+# matched case-insensitively. `help` is built in and cannot be used.
+#
+# Never put credentials in this file. Declare the secret names under `secrets`,
+# reference them in header values as {{secret:NAME}}, and set the values in the
+# web UI (Triggers page). Values are stored encrypted in the database.
+triggers:
+  deploy:
+    description: Deploy a service
+    enabled: true
+    method: POST
+    url: https://ci.example.com/hooks/deploy
+    headers:
+      Authorization: "Bearer {{secret:TOKEN}}"
+      X-Source: botrix
+    secrets: [TOKEN]
+    response_template: "Deploy ${status}: ${message}"
+    access_profile: ops
+    # Optional inline lists override the profile's list for that dimension:
+    # allowed_rooms: ["!other:matrix.example.com"]
+    # allowed_users: ["@carol:matrix.example.com"]
+
 server:
   host: "0.0.0.0"
   port: 8080

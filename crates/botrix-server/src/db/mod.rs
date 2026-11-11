@@ -22,7 +22,6 @@ macro_rules! debug_redacting {
 }
 pub(crate) use debug_redacting;
 
-pub mod access_profiles;
 pub mod auth;
 pub mod history;
 pub mod logs;

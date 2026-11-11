@@ -42,6 +42,26 @@ webhooks:
 
       ${message}
 
+access_profiles:
+  ops:
+    allowed_rooms:
+      - "!ops123:matrix.pikaviestin.fi"
+    allowed_users:
+      - "@alice:matrix.pikaviestin.fi"
+
+triggers:
+  deploy:
+    description: Deploy a service
+    enabled: true
+    method: POST
+    url: https://ci.example.com/hooks/deploy
+    headers:
+      Authorization: "Bearer {{secret:TOKEN}}"
+      X-Source: botrix
+    secrets: [TOKEN]
+    response_template: "Deploy ${status}: ${message}"
+    access_profile: ops
+
 server:
   host: "0.0.0.0"
   port: 8080
@@ -74,6 +94,40 @@ A map of webhook identifiers to definitions. Each identifier becomes part of the
 | `enabled` | No | Whether the endpoint accepts requests (default: `true`) |
 | `destination` | Yes | Logical name from `matrix.destinations` |
 | `msg_template` | Yes | Message template string (see [Webhooks](webhooks.md)) |
+
+## `triggers`
+
+A map of command words to definitions. Mentioning the bot with a command calls the trigger's webhook and replies with the result. See [Command triggers](triggers.md) for how they behave.
+
+The key is the command word. It must not contain whitespace, it is matched case-insensitively (so `Deploy` and `deploy` cannot both exist), and `help` is reserved for the built-in command.
+
+| Field | Required | Description |
+|---|---|---|
+| `description` | No | Text shown by `help` (default: empty) |
+| `enabled` | No | Whether the command runs (default: `true`) |
+| `method` | Yes | `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, in uppercase |
+| `url` | Yes | An `http` or `https` URL with a host |
+| `headers` | No | Map of header name to value. Values may use `{{secret:NAME}}` placeholders. |
+| `secrets` | No | Names of the secrets this trigger uses (letters, digits, `_` and `-`). Set the values in the web UI. |
+| `response_template` | No | Template for the reply, rendered from the JSON response. Without it, the reply is a short success or failure notice. |
+| `access_profile` | No | Name of an entry in `access_profiles` |
+| `allowed_rooms` | No | Room IDs allowed to run the command. Overrides the profile's list when non-empty. |
+| `allowed_users` | No | User IDs allowed to run the command. Overrides the profile's list when non-empty. |
+
+> **Never put credentials in this file.** There is no field for secret values. Declare the secret's name under `secrets`, reference it from a header as `{{secret:NAME}}`, and set the value on the **Triggers** page. The headers `Authorization`, `Proxy-Authorization`, `Cookie` and `X-Api-Key` must use a placeholder, and Botrix refuses to start if one has a literal value. This catches common mistakes only; it cannot recognise every credential.
+
+Unknown keys are rejected, so a typo such as `allowed_room` stops startup instead of silently dropping an access restriction. Every `{{secret:NAME}}` in a header must name a declared secret, and `access_profile` must name an existing profile.
+
+## `access_profiles`
+
+A map of profile names to reusable allowlists that triggers reference with `access_profile`.
+
+| Field | Required | Description |
+|---|---|---|
+| `allowed_rooms` | No | Room IDs (`!id:server`). Empty means any room. |
+| `allowed_users` | No | User IDs (`@user:server`). Empty means any user. |
+
+For each trigger, a non-empty inline `allowed_rooms` or `allowed_users` replaces the profile's list for that one dimension. The sender must pass both the room and the user check. An empty effective list does not restrict that dimension.
 
 ## `server`
 

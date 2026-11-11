@@ -1,42 +1,10 @@
-//! Command trigger and access profile API types.
+//! Command trigger API types.
 //!
-//! Secret values are write-only: they appear only in [`SecretInput`] (request)
-//! and never in any response type.
+//! Triggers are defined in the YAML config and are read-only over the API.
+//! Secret values are write-only: they appear only in [`SecretSetRequest`]
+//! (request) and never in any response type.
 
 use serde::{Deserialize, Serialize};
-
-/// A reusable allowlist of rooms and users, returned by `GET /api/v1/access-profiles`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AccessProfileDto {
-    /// Database row ID.
-    pub id: i64,
-    /// Unique profile name.
-    pub name: String,
-    /// Allowed Matrix room IDs (empty means any room).
-    pub allowed_rooms: Vec<String>,
-    /// Allowed Matrix user IDs (empty means any user).
-    pub allowed_users: Vec<String>,
-}
-
-/// Request body for creating or updating an access profile.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AccessProfileInput {
-    /// Unique profile name.
-    pub name: String,
-    /// Allowed Matrix room IDs (empty means any room).
-    pub allowed_rooms: Vec<String>,
-    /// Allowed Matrix user IDs (empty means any user).
-    pub allowed_users: Vec<String>,
-}
-
-/// An outbound HTTP header; the value may contain `{{secret:NAME}}` placeholders.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeaderDto {
-    /// Header name.
-    pub name: String,
-    /// Header value template.
-    pub value: String,
-}
 
 /// Whether a named secret currently has a value. Never carries the value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,102 +15,47 @@ pub struct SecretStatusDto {
     pub is_set: bool,
 }
 
-/// A command trigger returned by the triggers API.
+/// A config-defined command trigger as shown by `GET /api/v1/triggers`.
+///
+/// Read-only: triggers are defined in the YAML config. Only secret values can
+/// be changed through the API, and they never appear in any response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TriggerDto {
-    /// Database row ID.
-    pub id: i64,
-    /// Command word (matched case-insensitively).
+pub struct TriggerInfo {
+    /// Lowercase command word.
     pub command: String,
     /// Human-readable description shown by `help`.
     pub description: String,
-    /// Whether the trigger is active.
+    /// Whether the command is active.
     pub enabled: bool,
     /// HTTP method used for the webhook call.
     pub method: String,
     /// Webhook URL.
     pub url: String,
-    /// Template used to render the reply from a JSON response.
-    pub response_template: Option<String>,
-    /// Linked access profile, if any.
-    pub access_profile_id: Option<i64>,
-    /// Extra allowed room IDs for this trigger.
+    /// Names of the configured outbound headers (values are not returned).
+    pub header_names: Vec<String>,
+    /// Name of the referenced access profile, if any.
+    pub access_profile: Option<String>,
+    /// Effective allowed room IDs after applying the profile (empty means any).
     pub allowed_rooms: Vec<String>,
-    /// Extra allowed user IDs for this trigger.
+    /// Effective allowed user IDs after applying the profile (empty means any).
     pub allowed_users: Vec<String>,
-    /// Outbound headers.
-    pub headers: Vec<HeaderDto>,
-    /// Secret names and set-flags (no values).
+    /// Declared secrets and whether each has a stored value.
     pub secrets: Vec<SecretStatusDto>,
 }
 
-/// A secret change in a trigger create/update request.
-///
-/// `value: None` with `clear: false` leaves the stored secret unchanged.
+/// Request body for `PUT /api/v1/triggers/{command}/secrets/{name}`.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SecretInput {
-    /// Secret name.
-    pub name: String,
-    /// New plaintext value, if it should be set or replaced.
-    #[serde(default)]
-    pub value: Option<String>,
-    /// Remove the stored secret.
-    #[serde(default)]
-    pub clear: bool,
+pub struct SecretSetRequest {
+    /// The new plaintext secret value. Write-only.
+    pub value: String,
 }
 
-impl std::fmt::Debug for SecretInput {
+impl std::fmt::Debug for SecretSetRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SecretInput")
-            .field("name", &self.name)
-            .field("value", &self.value.as_ref().map(|_| "[redacted]"))
-            .field("clear", &self.clear)
+        f.debug_struct("SecretSetRequest")
+            .field("value", &"[redacted]")
             .finish()
     }
-}
-
-/// Request body for creating or updating a trigger.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TriggerInput {
-    /// Command word (matched case-insensitively).
-    pub command: String,
-    /// Human-readable description shown by `help`.
-    pub description: String,
-    /// Whether the trigger is active.
-    pub enabled: bool,
-    /// HTTP method used for the webhook call.
-    pub method: String,
-    /// Webhook URL.
-    pub url: String,
-    /// Template used to render the reply from a JSON response.
-    pub response_template: Option<String>,
-    /// Linked access profile, if any.
-    pub access_profile_id: Option<i64>,
-    /// Extra allowed room IDs for this trigger.
-    pub allowed_rooms: Vec<String>,
-    /// Extra allowed user IDs for this trigger.
-    pub allowed_users: Vec<String>,
-    /// Outbound headers.
-    pub headers: Vec<HeaderDto>,
-    /// Secret changes (omitted secrets stay unchanged).
-    pub secrets: Vec<SecretInput>,
-}
-
-/// Request body for `POST /api/v1/triggers/{id}/test`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TriggerTestRequest {
-    /// Optional sample argument text, as if typed after the command.
-    #[serde(default)]
-    pub args: Option<String>,
-}
-
-/// Result of a trigger dry-run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TriggerTestResponse {
-    /// HTTP status returned by the webhook, if a response was received.
-    pub status: Option<u16>,
-    /// The reply that would be sent to the room.
-    pub reply: String,
 }
 
 #[cfg(test)]
@@ -151,70 +64,39 @@ mod tests {
 
     const SECRET: &str = "s3cr3t-value-that-must-not-leak";
 
-    fn sample_input() -> TriggerInput {
-        TriggerInput {
+    fn sample_info() -> TriggerInfo {
+        TriggerInfo {
             command: "deploy".into(),
-            description: "Deploy the app".into(),
+            description: "d".into(),
             enabled: true,
             method: "POST".into(),
-            url: "https://example.com/hook".into(),
-            response_template: Some("{{status}}".into()),
-            access_profile_id: Some(3),
-            allowed_rooms: vec!["!room:example.org".into()],
-            allowed_users: vec!["@alice:example.org".into()],
-            headers: vec![HeaderDto {
-                name: "Authorization".into(),
-                value: "Bearer {{secret:TOKEN}}".into(),
-            }],
-            secrets: vec![SecretInput {
+            url: "https://example.com".into(),
+            header_names: vec!["Authorization".into()],
+            access_profile: Some("ops".into()),
+            allowed_rooms: vec!["!r:example.com".into()],
+            allowed_users: vec![],
+            secrets: vec![SecretStatusDto {
                 name: "TOKEN".into(),
-                value: Some(SECRET.into()),
-                clear: false,
+                is_set: true,
             }],
         }
     }
 
     #[test]
-    fn trigger_input_round_trips_through_json() {
-        let input = sample_input();
+    fn trigger_info_round_trips_through_json() {
+        let info = sample_info();
 
-        let json = serde_json::to_string(&input).unwrap();
-        let back: TriggerInput = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&info).unwrap();
+        let back: TriggerInfo = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(back, input);
+        assert_eq!(back, info);
     }
 
     #[test]
-    fn secret_input_without_value_or_clear_means_unchanged() {
-        let secret: SecretInput = serde_json::from_str(r#"{"name":"TOKEN"}"#).unwrap();
+    fn trigger_info_serializes_no_secret_value_key() {
+        let value = serde_json::to_value(sample_info()).unwrap();
 
-        assert_eq!(secret.value, None);
-        assert!(!secret.clear);
-    }
-
-    #[test]
-    fn trigger_dto_serializes_no_secret_value_key() {
-        let dto = TriggerDto {
-            id: 1,
-            command: "deploy".into(),
-            description: "d".into(),
-            enabled: true,
-            method: "GET".into(),
-            url: "https://example.com".into(),
-            response_template: None,
-            access_profile_id: None,
-            allowed_rooms: vec![],
-            allowed_users: vec![],
-            headers: vec![],
-            secrets: vec![SecretStatusDto {
-                name: "TOKEN".into(),
-                is_set: true,
-            }],
-        };
-
-        let value = serde_json::to_value(&dto).unwrap();
-        let secret = &value["secrets"][0];
-        let mut keys: Vec<&str> = secret
+        let mut keys: Vec<&str> = value["secrets"][0]
             .as_object()
             .unwrap()
             .keys()
@@ -226,25 +108,24 @@ mod tests {
     }
 
     #[test]
-    fn secret_input_debug_redacts_the_value() {
-        let debug = format!(
-            "{:?}",
-            SecretInput {
-                name: "TOKEN".into(),
-                value: Some(SECRET.into()),
-                clear: false,
-            }
-        );
+    fn secret_set_request_debug_redacts_the_value() {
+        // Arrange
+        let request = SecretSetRequest {
+            value: SECRET.into(),
+        };
 
-        assert!(debug.contains("TOKEN"));
+        // Act
+        let debug = format!("{request:?}");
+
+        // Assert
         assert!(debug.contains("[redacted]"));
         assert!(!debug.contains(SECRET), "leaked secret: {debug}");
     }
 
     #[test]
-    fn trigger_input_debug_does_not_leak_secret_value() {
-        let debug = format!("{:?}", sample_input());
+    fn secret_set_request_deserializes_from_the_wire_shape() {
+        let request: SecretSetRequest = serde_json::from_str(r#"{"value":"abc"}"#).unwrap();
 
-        assert!(!debug.contains(SECRET), "leaked secret: {debug}");
+        assert_eq!(request.value, "abc");
     }
 }

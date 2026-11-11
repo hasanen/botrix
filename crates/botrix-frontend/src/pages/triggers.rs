@@ -1,23 +1,25 @@
-//! Command triggers list page.
+//! Command triggers page.
+//!
+//! Triggers are defined in the config file, so this page is read-only apart
+//! from secret values, which can be set or cleared per declared secret. It is
+//! laid out like the webhook endpoints card.
 
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use leptos_router::components::A;
 
-use botrix_common::api::triggers::{TriggerDto, TriggerTestResponse};
+use botrix_common::api::triggers::TriggerInfo;
 
 use crate::api;
 use crate::components::error_banner::ErrorBanner;
 use crate::components::layout::{redirect_if_unauthorized, AuthLayout};
 use crate::components::loading_spinner::LoadingSpinner;
 use crate::components::modal::ConfirmModal;
+use crate::components::status_badge::StatusBadge;
+use crate::util::{access_lines, secret_badge, secret_value_error, trigger_logs_link};
 
-/// A finished dry-run, shown in the result dialog.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TestOutcome {
-    command: String,
-    response: TriggerTestResponse,
-}
+/// A `(command, secret name)` pair a modal is acting on.
+type SecretTarget = (String, String);
 
 /// Command triggers page component.
 #[component]
@@ -31,11 +33,14 @@ pub fn TriggersPage() -> impl IntoView {
 
 #[component]
 fn TriggersCard() -> impl IntoView {
-    let (items, set_items) = signal(Vec::<TriggerDto>::new());
+    let (items, set_items) = signal(Vec::<TriggerInfo>::new());
     let (loaded, set_loaded) = signal(false);
     let (error, set_error) = signal(Option::<String>::None);
-    let (delete_target, set_delete_target) = signal(Option::<TriggerDto>::None);
-    let (test_outcome, set_test_outcome) = signal(Option::<TestOutcome>::None);
+    let (set_target, set_set_target) = signal(Option::<SecretTarget>::None);
+    let (clear_target, set_clear_target) = signal(Option::<SecretTarget>::None);
+    let (secret_value, set_secret_value) = signal(String::new());
+    let (modal_error, set_modal_error) = signal(Option::<String>::None);
+    let (saving, set_saving) = signal(false);
     let (reload, set_reload) = signal(0_u32);
 
     let fail = move |e: api::ApiError| {
@@ -58,40 +63,51 @@ fn TriggersCard() -> impl IntoView {
         });
     });
 
-    let toggle = move |trigger: TriggerDto, enabled: bool| {
+    // Closes the set-value dialog and forgets what was typed.
+    let close_set = move || {
+        set_set_target.set(None);
+        set_secret_value.set(String::new());
+        set_modal_error.set(None);
+    };
+
+    let submit = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+        let Some((command, name)) = set_target.get() else {
+            return;
+        };
+        let value = secret_value.get();
+        if let Some(message) = secret_value_error(&value) {
+            set_modal_error.set(Some(message.to_owned()));
+            return;
+        }
+        set_modal_error.set(None);
+        set_saving.set(true);
         spawn_local(async move {
-            match api::set_trigger_enabled(&trigger, enabled).await {
-                Ok(_) => set_reload.update(|n| *n += 1),
-                Err(e) => {
-                    // Re-render so the checkbox reflects the stored state.
+            let result = api::set_trigger_secret(&command, &name, &value).await;
+            set_saving.set(false);
+            match result {
+                Ok(_) => {
+                    close_set();
                     set_reload.update(|n| *n += 1);
-                    fail(e);
+                }
+                Err(e) => {
+                    if !redirect_if_unauthorized(&e) {
+                        set_modal_error.set(Some(e.user_message()));
+                    }
                 }
             }
         });
     };
 
-    let run_test = move |trigger: TriggerDto| {
-        spawn_local(async move {
-            match api::test_trigger(trigger.id, None).await {
-                Ok(response) => set_test_outcome.set(Some(TestOutcome {
-                    command: trigger.command,
-                    response,
-                })),
-                Err(e) => fail(e),
-            }
-        });
-    };
-
-    let confirm_delete = move |()| {
-        let Some(trigger) = delete_target.get() else {
+    let confirm_clear = move |()| {
+        let Some((command, name)) = clear_target.get() else {
             return;
         };
         spawn_local(async move {
-            let result = api::delete_trigger(trigger.id).await;
-            set_delete_target.set(None);
+            let result = api::clear_trigger_secret(&command, &name).await;
+            set_clear_target.set(None);
             match result {
-                Ok(()) => set_reload.update(|n| *n += 1),
+                Ok(_) => set_reload.update(|n| *n += 1),
                 Err(e) => fail(e),
             }
         });
@@ -99,130 +115,176 @@ fn TriggersCard() -> impl IntoView {
 
     view! {
         <section class="bg-white rounded-lg shadow p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="text-xl font-semibold">"Command triggers"</h2>
-                <A href="/triggers/new" attr:class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50">
-                    "New trigger"
-                </A>
-            </div>
+            <h2 class="text-xl font-semibold mb-1">"Command triggers"</h2>
+            <p class="text-sm text-gray-600 mb-4">
+                "Triggers are defined in the config file. Only secret values can be changed here."
+            </p>
             {move || error.get().map(|msg| view! { <ErrorBanner message=msg /> })}
             {move || if !loaded.get() {
                 view! { <LoadingSpinner /> }.into_any()
             } else if items.get().is_empty() {
-                view! { <p class="text-sm text-gray-500">"No command triggers yet."</p> }.into_any()
+                view! {
+                    <p class="text-sm text-gray-500">
+                        "No command triggers are defined. Add them under "
+                        <code>"triggers:"</code> " in the config file."
+                    </p>
+                }.into_any()
             } else {
                 view! {
-                    <table class="w-full text-sm text-left">
-                        <caption class="sr-only">"Command triggers"</caption>
-                        <thead>
-                            <tr class="text-gray-500 border-b border-gray-200">
-                                <th scope="col" class="py-2 pr-4">"Command"</th>
-                                <th scope="col" class="py-2 pr-4">"Method"</th>
-                                <th scope="col" class="py-2 pr-4">"URL"</th>
-                                <th scope="col" class="py-2 pr-4">"Enabled"</th>
-                                <th scope="col" class="py-2">"Actions"</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {items.get().into_iter().map(|t| {
-                                let edit_href = format!("/triggers/{}", t.id);
-                                let edit_label = format!("Edit {}", t.command);
-                                let test_label = format!("Test {}", t.command);
-                                let delete_label = format!("Delete {}", t.command);
-                                let toggle_label = format!("Enabled: {}", t.command);
-                                let for_toggle = t.clone();
-                                let for_test = t.clone();
-                                let for_delete = t.clone();
-                                view! {
-                                    <tr class="border-b border-gray-200">
-                                        <td class="py-2 pr-4"><code>{t.command.clone()}</code></td>
-                                        <td class="py-2 pr-4">{t.method.clone()}</td>
-                                        <td class="py-2 pr-4"><code class="text-xs">{t.url.clone()}</code></td>
-                                        <td class="py-2 pr-4">
-                                            <input
-                                                type="checkbox"
-                                                aria-label=toggle_label
-                                                prop:checked=t.enabled
-                                                on:change=move |ev| {
-                                                    toggle(for_toggle.clone(), event_target_checked(&ev))
-                                                }
-                                            />
-                                        </td>
-                                        <td class="py-2 flex gap-2">
-                                            <A
-                                                href=edit_href
-                                                attr:class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
-                                                attr:aria-label=edit_label
-                                            >
-                                                "Edit"
-                                            </A>
-                                            <button
-                                                type="button"
-                                                aria-label=test_label
-                                                on:click=move |_| run_test(for_test.clone())
-                                                class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
-                                            >
-                                                "Test"
-                                            </button>
-                                            <button
-                                                type="button"
-                                                aria-label=delete_label
-                                                on:click=move |_| set_delete_target.set(Some(for_delete.clone()))
-                                                class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-red-700"
-                                            >
-                                                "Delete"
-                                            </button>
-                                        </td>
-                                    </tr>
-                                }
-                            }).collect_view()}
-                        </tbody>
-                    </table>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <caption class="sr-only">"Command triggers"</caption>
+                            <thead>
+                                <tr class="text-gray-500 border-b border-gray-200">
+                                    <th scope="col" class="py-2 pr-4">"Command"</th>
+                                    <th scope="col" class="py-2 pr-4">"Method"</th>
+                                    <th scope="col" class="py-2 pr-4">"URL"</th>
+                                    <th scope="col" class="py-2 pr-4">"Enabled"</th>
+                                    <th scope="col" class="py-2 pr-4">"Access"</th>
+                                    <th scope="col" class="py-2">"Secrets"</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {items.get().into_iter().map(|t| {
+                                    let access = access_lines(
+                                        &t.allowed_rooms,
+                                        &t.allowed_users,
+                                        t.access_profile.as_deref(),
+                                    );
+                                    let headers = t.header_names.join(", ");
+                                    let command = t.command.clone();
+                                    view! {
+                                        <tr class="border-b border-gray-200 align-top">
+                                            <td class="py-2 pr-4">
+                                                <code>{t.command.clone()}</code>
+                                                {(!t.description.is_empty()).then(|| view! {
+                                                    <div class="text-xs text-gray-500">{t.description.clone()}</div>
+                                                })}
+                                                <A
+                                                    href=trigger_logs_link(&t.command)
+                                                    attr:class="text-xs text-blue-700 underline"
+                                                    attr:aria-label=format!("View activity for {}", t.command)
+                                                >
+                                                    "View activity"
+                                                </A>
+                                            </td>
+                                            <td class="py-2 pr-4">{t.method.clone()}</td>
+                                            <td class="py-2 pr-4">
+                                                <code class="text-xs break-all">{t.url.clone()}</code>
+                                                {(!headers.is_empty()).then(|| view! {
+                                                    <div class="text-xs text-gray-500">"Headers: " {headers.clone()}</div>
+                                                })}
+                                            </td>
+                                            <td class="py-2 pr-4">{if t.enabled { "Yes" } else { "No" }}</td>
+                                            <td class="py-2 pr-4 text-xs">
+                                                {access.into_iter().map(|line| view! {
+                                                    <div class="break-all">{line}</div>
+                                                }).collect_view()}
+                                            </td>
+                                            <td class="py-2">
+                                                {if t.secrets.is_empty() {
+                                                    view! { <span class="text-gray-500">"None"</span> }.into_any()
+                                                } else {
+                                                    t.secrets.into_iter().map(|s| {
+                                                        let (badge, label) = secret_badge(s.is_set);
+                                                        let set_label = format!("Set value of secret {} for {}", s.name, command);
+                                                        let clear_label = format!("Clear secret {} of {}", s.name, command);
+                                                        let for_set = (command.clone(), s.name.clone());
+                                                        let for_clear = (command.clone(), s.name.clone());
+                                                        view! {
+                                                            <div class="flex flex-wrap items-center gap-2 mb-1">
+                                                                <code class="text-xs">{s.name.clone()}</code>
+                                                                <StatusBadge status=badge label=label.to_string() />
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label=set_label
+                                                                    on:click=move |_| set_set_target.set(Some(for_set.clone()))
+                                                                    class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50"
+                                                                >
+                                                                    "Set value"
+                                                                </button>
+                                                                {s.is_set.then(|| view! {
+                                                                    <button
+                                                                        type="button"
+                                                                        aria-label=clear_label
+                                                                        on:click=move |_| set_clear_target.set(Some(for_clear.clone()))
+                                                                        class="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-red-700"
+                                                                    >
+                                                                        "Clear"
+                                                                    </button>
+                                                                })}
+                                                            </div>
+                                                        }
+                                                    }).collect_view().into_any()
+                                                }}
+                                            </td>
+                                        </tr>
+                                    }
+                                }).collect_view()}
+                            </tbody>
+                        </table>
+                    </div>
                 }.into_any()
             }}
 
-            {move || test_outcome.get().map(|outcome| {
-                let status = outcome
-                    .response
-                    .status
-                    .map_or_else(|| "no response".to_string(), |s| s.to_string());
-                view! {
-                    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                        <div
-                            role="dialog"
-                            aria-modal="true"
-                            aria-labelledby="trigger-test-title"
-                            class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6"
-                        >
-                            <h2 id="trigger-test-title" class="text-lg font-semibold text-gray-900 mb-2">
-                                "Test result: " {outcome.command}
-                            </h2>
-                            <p class="text-sm text-gray-600 mb-2">
-                                "Status: " <b>{status}</b>
-                            </p>
-                            <p class="text-sm text-gray-600 mb-2">"Rendered reply:"</p>
-                            <pre class="text-xs mb-6" style="white-space: pre-wrap;">{outcome.response.reply}</pre>
-                            <div class="flex justify-end gap-3">
-                                <button
-                                    type="button"
-                                    on:click=move |_| set_test_outcome.set(None)
-                                    class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
-                                >
-                                    "Close"
-                                </button>
-                            </div>
+            <Show when=move || set_target.get().is_some()>
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+                    <form
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="secret-modal-title"
+                        on:submit=submit
+                        class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6"
+                    >
+                        <h2 id="secret-modal-title" class="text-lg font-semibold text-gray-900 mb-2">
+                            {move || set_target.get().map(|(command, name)| {
+                                format!("Set secret {name} for {command}")
+                            })}
+                        </h2>
+                        <p class="text-sm text-gray-600 mb-4">
+                            "The value is stored encrypted and is never shown again."
+                        </p>
+                        <label for="secret-value" class="block text-sm font-medium text-gray-700 mb-1">
+                            "Secret value"
+                        </label>
+                        <input
+                            id="secret-value"
+                            type="password"
+                            autocomplete="new-password"
+                            class="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-2"
+                            prop:value=move || secret_value.get()
+                            on:input=move |ev| set_secret_value.set(event_target_value(&ev))
+                        />
+                        {move || modal_error.get().map(|msg| view! {
+                            <p role="alert" class="text-sm text-red-700 mb-2">{msg}</p>
+                        })}
+                        <div class="flex justify-end gap-3 mt-4">
+                            <button
+                                type="button"
+                                on:click=move |_| close_set()
+                                class="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded hover:bg-gray-50"
+                            >
+                                "Cancel"
+                            </button>
+                            <button
+                                type="submit"
+                                prop:disabled=move || saving.get()
+                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                "Save"
+                            </button>
                         </div>
-                    </div>
-                }
-            })}
+                    </form>
+                </div>
+            </Show>
 
             <ConfirmModal
-                open=Signal::derive(move || delete_target.get().is_some())
-                title="Delete trigger".to_string()
-                message="The trigger and its stored secrets will be removed. This cannot be undone.".to_string()
-                confirm_label="Delete".to_string()
-                on_confirm=Callback::new(confirm_delete)
-                on_cancel=Callback::new(move |()| set_delete_target.set(None))
+                open=Signal::derive(move || clear_target.get().is_some())
+                title="Clear secret".to_string()
+                message="The stored value is removed and commands that use it will fail until a new value is set.".to_string()
+                confirm_label="Clear".to_string()
+                on_confirm=Callback::new(confirm_clear)
+                on_cancel=Callback::new(move |()| set_clear_target.set(None))
             />
         </section>
     }

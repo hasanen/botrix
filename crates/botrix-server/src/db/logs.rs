@@ -48,6 +48,16 @@ impl Component {
     }
 }
 
+/// The prefix that ties a trigger event to a command.
+///
+/// Trigger events start their `details` with this tag, and the Logs page
+/// filters on it, so the writer and the filter share one definition. The
+/// command is lowercased (commands are case-insensitive) and the trailing
+/// space stops `echo` from matching `echo2`.
+pub fn command_tag(command: &str) -> String {
+    format!("command={} ", command.to_lowercase())
+}
+
 /// The value stored in the `level` column (matches the API's serialization).
 fn level_str(level: &LogLevel) -> &'static str {
     match level {
@@ -167,6 +177,19 @@ mod tests {
         let (items, total) = list_logs(&pool, 1, 100).unwrap();
         assert_eq!(total, 18);
         assert_eq!(items.len(), 18);
+    }
+
+    #[test]
+    fn command_tag_is_lowercase_and_ends_with_a_separator() {
+        assert_eq!(command_tag("Deploy"), "command=deploy ");
+        assert_eq!(command_tag("a_b"), "command=a_b ");
+    }
+
+    #[test]
+    fn command_tag_does_not_match_a_longer_command_with_the_same_prefix() {
+        // The trailing separator is what keeps `echo` apart from `echo2`.
+        assert!(!"command=echo2 sender=x".starts_with(&command_tag("echo")));
+        assert!("command=echo sender=x".starts_with(&command_tag("echo")));
     }
 
     #[test]

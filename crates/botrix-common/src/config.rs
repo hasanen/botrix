@@ -3,7 +3,7 @@
 //! These types are used for deserialization only; file I/O is handled
 //! exclusively in `botrix-server`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,12 @@ pub struct Config {
     /// Webhook endpoint definitions.
     #[serde(default)]
     pub webhooks: HashMap<String, WebhookConfig>,
+    /// Command triggers, keyed by command name (matched case-insensitively).
+    #[serde(default)]
+    pub triggers: HashMap<String, TriggerConfig>,
+    /// Reusable room/user allowlists that triggers can reference by name.
+    #[serde(default)]
+    pub access_profiles: HashMap<String, AccessProfileConfig>,
     /// HTTP server configuration.
     #[serde(default)]
     pub server: ServerConfig,
@@ -50,6 +56,58 @@ pub struct WebhookConfig {
     pub destination: String,
     /// Message template string using `${variable}` syntax.
     pub msg_template: String,
+}
+
+/// A command trigger: a Matrix command that calls an external HTTP webhook.
+///
+/// Secret *values* are never part of the config; only their names are declared
+/// in [`TriggerConfig::secrets`] and referenced from header values as
+/// `{{secret:NAME}}`. Unknown keys are rejected so that a typo such as
+/// `allowed_room` cannot silently drop an access restriction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerConfig {
+    /// Human-readable description shown by the `help` command.
+    #[serde(default)]
+    pub description: String,
+    /// Whether the command is active (default: `true`).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// HTTP method: `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`.
+    pub method: String,
+    /// Webhook URL (`http` or `https`).
+    pub url: String,
+    /// Outbound headers; values may contain `{{secret:NAME}}` placeholders.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    /// Names of the secrets this trigger uses. Values are set in the web UI.
+    #[serde(default)]
+    pub secrets: Vec<String>,
+    /// Template used to render the reply from a JSON response; `None` means a
+    /// status-only reply.
+    #[serde(default)]
+    pub response_template: Option<String>,
+    /// Name of an entry in `access_profiles` to take allowlists from.
+    #[serde(default)]
+    pub access_profile: Option<String>,
+    /// Inline allowed room IDs; non-empty overrides the profile's list.
+    #[serde(default)]
+    pub allowed_rooms: Vec<String>,
+    /// Inline allowed user IDs; non-empty overrides the profile's list.
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
+/// A reusable allowlist of rooms and users.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccessProfileConfig {
+    /// Allowed Matrix room IDs (empty means any room).
+    #[serde(default)]
+    pub allowed_rooms: Vec<String>,
+    /// Allowed Matrix user IDs (empty means any user).
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
 }
 
 /// HTTP server configuration.
