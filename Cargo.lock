@@ -568,7 +568,7 @@ dependencies = [
  "botrix-common",
  "clap",
  "constant_time_eq",
- "hkdf 0.12.4",
+ "hkdf",
  "http-body-util",
  "ipnet",
  "matrix-sdk",
@@ -1782,15 +1782,6 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hkdf"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
-dependencies = [
- "hmac 0.12.1",
-]
-
-[[package]]
-name = "hkdf"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
@@ -1825,7 +1816,7 @@ dependencies = [
  "aead 0.6.1",
  "chacha20poly1305",
  "getrandom 0.4.3",
- "hkdf 0.13.0",
+ "hkdf",
  "hybrid-array",
  "rand_core 0.10.1",
  "sha2 0.11.1",
@@ -2881,7 +2872,7 @@ dependencies = [
  "eyeball",
  "futures-core",
  "futures-util",
- "hkdf 0.13.0",
+ "hkdf",
  "hmac 0.13.0",
  "itertools 0.15.0",
  "js_option",
@@ -2916,7 +2907,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "gloo-utils 0.3.0",
- "hkdf 0.13.0",
+ "hkdf",
  "js-sys",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
@@ -2977,7 +2968,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "getrandom 0.4.3",
- "hkdf 0.13.0",
+ "hkdf",
  "hmac 0.13.0",
  "pbkdf2",
  "rand 0.10.3",
@@ -5469,7 +5460,7 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "getrandom 0.4.3",
- "hkdf 0.13.0",
+ "hkdf",
  "hmac 0.13.0",
  "hpke",
  "matrix-pickle",
