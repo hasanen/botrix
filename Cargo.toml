@@ -67,6 +67,6 @@ ipnet = "2"
 
 # Frontend-only
 leptos = { version = "0.8", features = ["csr"] }
-gloo-net = { version = "0.6", features = ["http"] }
+gloo-net = { version = "0.7", features = ["http"] }
 leptos_router = { version = "0.8" }
 web-sys = "0.3"
